@@ -31,9 +31,9 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Constants & Default Configurations
-DEFAULT_API_KEY = os.environ.get("MINIMAX_API_KEY", "sk-api-KDxzkUn1rETYdUFlI2sKMwO4pZbJUSkNJQaiK0vIe4H8Bp85IKDu-P-w-cEM0jo2PTQQtw79jQE9-3WQ1y36aN5FkM_NcbrwU11_uYbj8e6A70UzLhWlYSI")
-DEFAULT_PASSWORD = os.environ.get("ACCESS_PASSWORD", "ket2026")
+# Constants & Default Configurations (Reads securely from Streamlit Secrets or Environment)
+DEFAULT_API_KEY = st.secrets.get("MINIMAX_API_KEY", os.environ.get("MINIMAX_API_KEY", "sk-api-KDxzkUn1rETYdUFlI2sKMwO4pZbJUSkNJQaiK0vIe4H8Bp85IKDu-P-w-cEM0jo2PTQQtw79jQE9-3WQ1y36aN5FkM_NcbrwU11_uYbj8e6A70UzLhWlYSI"))
+DEFAULT_PASSWORD = st.secrets.get("ACCESS_PASSWORD", os.environ.get("ACCESS_PASSWORD", "ket2026"))
 DEFAULT_MODEL = "speech-2.6-hd"
 SAMPLE_RATE = 32000
 
