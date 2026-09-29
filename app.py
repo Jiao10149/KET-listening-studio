@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-KET & PET Listening Audio Studio (Web Application)
-Automated Multi-Role Synthesis, Double-Pass Alignment, and Zero-Airflow Master Engineering.
+KET & Universal Listening Audio Studio (Web Application)
+Automated Multi-Role Synthesis, Dynamic Voice ID & Emotion Engine,
+Double-Pass/Single-Pass Alignment, and Zero-Airflow Master Engineering.
 """
 
 import streamlit as st
@@ -27,36 +28,36 @@ except Exception:
     DEFAULT_FFMPEG = "ffmpeg"
 
 st.set_page_config(
-    page_title="KET 听力智能录音工作台",
+    page_title="KET / 通用听力智能录音工作台",
     page_icon="🎙️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling for Aesthetic Studio Look
+# Custom Styling for Aesthetic Modern Studio Look
 st.markdown("""
 <style>
-    /* Global Font & Background Styling */
+    /* Global Container */
     .main .block-container {
-        padding-top: 1.8rem;
+        padding-top: 1.5rem;
         padding-bottom: 3rem;
-        max-width: 1280px;
+        max-width: 1320px;
     }
     
     /* Header Card */
     .studio-header {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
         color: #ffffff;
         padding: 24px 30px;
         border-radius: 16px;
-        margin-bottom: 24px;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+        margin-bottom: 22px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
         border: 1px solid rgba(255, 255, 255, 0.08);
     }
     .studio-header h1 {
         font-size: 26px;
         font-weight: 700;
-        margin: 0 0 8px 0;
+        margin: 0 0 6px 0;
         color: #f8fafc;
         display: flex;
         align-items: center;
@@ -86,42 +87,45 @@ st.markdown("""
         font-size: 12px;
         font-weight: 500;
     }
+    .spec-badge.ket-locked {
+        background: rgba(16, 185, 129, 0.15);
+        border-color: rgba(16, 185, 129, 0.4);
+        color: #34d399;
+        font-weight: 600;
+    }
+    .spec-badge.custom-mode {
+        background: rgba(168, 85, 247, 0.15);
+        border-color: rgba(168, 85, 247, 0.4);
+        color: #c084fc;
+        font-weight: 600;
+    }
     .spec-badge.highlight {
         background: rgba(245, 158, 11, 0.15);
         border-color: rgba(245, 158, 11, 0.4);
         color: #fbbf24;
     }
-    .spec-badge.green {
-        background: rgba(16, 185, 129, 0.15);
-        border-color: rgba(16, 185, 129, 0.4);
-        color: #34d399;
-    }
 
-    /* Card Panels */
-    .content-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 14px;
-        padding: 22px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        margin-bottom: 20px;
-    }
-
-    /* Button Styling */
-    div.stButton > button:first-child {
-        border-radius: 8px;
-        font-weight: 600;
-        transition: all 0.2s ease;
+    /* Toolbar Quick Pill */
+    .tag-pill {
+        display: inline-block;
+        background: #f1f5f9;
+        border: 1px solid #cbd5e1;
+        color: #334155;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-family: monospace;
+        font-size: 12px;
+        margin: 2px;
     }
 
     /* Tab Label Styling */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
+        gap: 10px;
     }
     .stTabs [data-baseweb="tab"] {
-        font-size: 15px;
+        font-size: 14.5px;
         font-weight: 600;
-        padding: 10px 18px;
+        padding: 9px 18px;
         border-radius: 8px;
     }
 </style>
@@ -130,32 +134,49 @@ st.markdown("""
 # Constants & Default Configurations
 DEFAULT_API_KEY = st.secrets.get("MINIMAX_API_KEY", os.environ.get("MINIMAX_API_KEY", "sk-api-KDxzkUn1rETYdUFlI2sKMwO4pZbJUSkNJQaiK0vIe4H8Bp85IKDu-P-w-cEM0jo2PTQQtw79jQE9-3WQ1y36aN5FkM_NcbrwU11_uYbj8e6A70UzLhWlYSI"))
 DEFAULT_PASSWORD = st.secrets.get("ACCESS_PASSWORD", os.environ.get("ACCESS_PASSWORD", "ket2026"))
-DEFAULT_MODEL = "speech-2.6-hd"
 SAMPLE_RATE = 32000
 
-VOICE_CONFIG = {
-    "Man_N": "voice_1766653420_c08e99bd",
-    "Man": "voice_1766653420_c08e99bd",
-    "Woman": "clone_voice_narrator",
-    "Boy": "ttv-voice-2025082420154325-DQq2kiZd",
-    "Girl": "ttv-voice-2025092610302125-BvMx9oDR"
+# Standard KET Fixed Specifications (Locked)
+KET_DEFAULT_MODEL = "speech-2.6-hd"
+KET_VOICES = {
+    "Woman": {"voice_id": "clone_voice_narrator", "vol": 2.0, "pitch": 0, "name": "Woman (老师/妈妈/女声 - 音量 2.0)"},
+    "Girl": {"voice_id": "ttv-voice-2025092610302125-BvMx9oDR", "vol": 1.0, "pitch": 0, "name": "Girl (女学生 - 音量 1.0)"},
+    "Boy": {"voice_id": "ttv-voice-2025082420154325-DQq2kiZd", "vol": 1.0, "pitch": 0, "name": "Boy (男学生 - 音量 1.0)"},
+    "Man_N": {"voice_id": "voice_1766653420_c08e99bd", "vol": 1.0, "pitch": 0, "name": "Man_N (旁白导语 - 音量 1.0)"},
+    "Man": {"voice_id": "voice_1766653420_c08e99bd", "vol": 1.0, "pitch": 0, "name": "Man (成年男声/爸爸 - 音量 1.0)"}
 }
 
-# Role Volume: 女人=2.0，女孩=1.0，其余均1.0
-ROLE_VOL = {
-    "Man_N": 1.0,
-    "Man": 1.0,
-    "Woman": 2.0,
-    "Boy": 1.0,
-    "Girl": 1.0
+# Supported Emotions in MiniMax
+EMOTION_MAP = {
+    "neutral": "neutral",
+    "happy": "happy",
+    "friendly": "happy",
+    "calm": "calm",
+    "sad": "sad",
+    "angry": "angry",
+    "fearful": "fearful",
+    "disgusted": "disgusted",
+    "surprised": "surprised",
+    "whisper": "whisper",
+    "fluent": "fluent"
 }
 
 PAUSE_PATTERN = re.compile(r'<#(\d+(?:\.\d+)?)#>')
-LINE_PATTERN = re.compile(r'^\s*([A-Za-z0-9_]+)(?:\|[^|]*\|)?\s*:\s*(.*)$')
+LINE_PATTERN = re.compile(r'^\s*([A-Za-z0-9_]+)(?:\|([^|]*)\|)?\s*:\s*(.*)$')
 
-# Password Authentication
+# Session State for Custom Roles & Authentication
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+
+if "custom_roles" not in st.session_state:
+    st.session_state.custom_roles = {
+        "Woman": {"voice_id": "clone_voice_narrator", "vol": 2.0, "pitch": 0, "desc": "老师/成年女性"},
+        "Girl": {"voice_id": "ttv-voice-2025092610302125-BvMx9oDR", "vol": 1.0, "pitch": 0, "desc": "女孩"},
+        "Boy": {"voice_id": "ttv-voice-2025082420154325-DQq2kiZd", "vol": 1.0, "pitch": 0, "desc": "男孩"},
+        "Man_N": {"voice_id": "voice_1766653420_c08e99bd", "vol": 1.0, "pitch": 0, "desc": "导语旁白"},
+        "Man": {"voice_id": "voice_1766653420_c08e99bd", "vol": 1.0, "pitch": 0, "desc": "爸爸/成年男性"},
+        "Teacher": {"voice_id": "clone_voice_narrator", "vol": 2.0, "pitch": 0, "desc": "授课教师"}
+    }
 
 def check_password():
     if st.session_state.get("password_input") == DEFAULT_PASSWORD:
@@ -168,7 +189,7 @@ if not st.session_state.authenticated:
     st.markdown("""
     <div style="max-width: 460px; margin: 100px auto; padding: 36px; background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; text-align: center;">
         <div style="font-size: 48px; margin-bottom: 12px;">🎙️</div>
-        <h2 style="margin: 0 0 10px 0; color: #1e293b; font-weight: 700;">KET 听力录音工作台</h2>
+        <h2 style="margin: 0 0 10px 0; color: #1e293b; font-weight: 700;">听力智能录音工作台</h2>
         <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">团队内部专用生产系统 · 请输入授权密码继续</p>
     </div>
     """, unsafe_allow_html=True)
@@ -231,10 +252,17 @@ def create_silence_pcm(seconds):
     """Generate exact digital silence PCM bytes (Zero-Airflow)."""
     return b'\x00' * int(SAMPLE_RATE * 2 * seconds)
 
-async def synthesize_speech_segment(text, role, api_key, speed, vol_override=None, retries=3):
-    """Synthesize speech using MiniMax WebSocket API."""
-    voice_id = VOICE_CONFIG.get(role, VOICE_CONFIG["Man_N"])
-    vol = vol_override if vol_override is not None else ROLE_VOL.get(role, 1.0)
+async def synthesize_speech_segment(text, role, api_key, speed, model_name, voice_map, emotion_override=None, retries=3):
+    """Synthesize speech using MiniMax WebSocket API supporting custom voice_id, model, and emotions."""
+    role_conf = voice_map.get(role, voice_map.get("Man_N", {
+        "voice_id": "voice_1766653420_c08e99bd",
+        "vol": 1.0,
+        "pitch": 0
+    }))
+    voice_id = role_conf.get("voice_id", "voice_1766653420_c08e99bd")
+    vol = role_conf.get("vol", 1.0)
+    pitch = role_conf.get("pitch", 0)
+
     url = "wss://api.minimaxi.com/ws/v1/t2a_v2"
     headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -249,16 +277,23 @@ async def synthesize_speech_segment(text, role, api_key, speed, vol_override=Non
                 if conn_resp.get("event") != "connected_success":
                     continue
 
+                voice_setting = {
+                    "voice_id": voice_id,
+                    "speed": speed,
+                    "vol": vol,
+                    "pitch": pitch,
+                    "english_normalization": True
+                }
+
+                # MiniMax emotion parameter
+                if emotion_override:
+                    norm_emotion = EMOTION_MAP.get(emotion_override.lower(), emotion_override.lower())
+                    voice_setting["emotion"] = norm_emotion
+
                 start_msg = {
                     "event": "task_start",
-                    "model": DEFAULT_MODEL,
-                    "voice_setting": {
-                        "voice_id": voice_id,
-                        "speed": speed,
-                        "vol": vol,
-                        "pitch": 0,
-                        "english_normalization": True
-                    },
+                    "model": model_name,
+                    "voice_setting": voice_setting,
                     "audio_setting": {
                         "sample_rate": SAMPLE_RATE,
                         "bitrate": 128000,
@@ -294,23 +329,24 @@ async def synthesize_speech_segment(text, role, api_key, speed, vol_override=Non
         except Exception:
             await asyncio.sleep(1.0)
 
-    raise RuntimeError(f"合成失败: {text}")
+    raise RuntimeError(f"合成失败: [{role}] {text}")
 
-async def process_question_text(role, question_text, api_key, speed):
+async def process_question_text(role, question_text, emotion, api_key, speed, model_name, voice_map):
     parts = PAUSE_PATTERN.split(question_text)
     pcm = b""
     for idx, part in enumerate(parts):
         if idx % 2 == 0:
             sub = part.strip()
             if sub:
-                pcm += await synthesize_speech_segment(sub, role, api_key, speed)
+                pcm += await synthesize_speech_segment(sub, role, api_key, speed, model_name, voice_map, emotion)
         else:
             sec = float(part)
             pcm += create_silence_pcm(sec)
     return pcm
 
-async def build_audio_master(raw_script, api_key, speed, now_listen_pcm, progress_cb=None):
-    """Parse raw script, synthesize elements, and assemble master PCM."""
+async def build_audio_master(raw_script, api_key, speed, model_name, voice_map, is_double_pass,
+                             now_listen_pcm, turn_pause=0.5, end_pause=2.0, progress_cb=None):
+    """Parse raw script, synthesize elements, and assemble master PCM with flexible structure."""
     lines = [l.strip() for l in raw_script.strip().splitlines() if l.strip()]
     if not lines:
         raise ValueError("输入剧本为空，请提供有效对话内容。")
@@ -319,17 +355,20 @@ async def build_audio_master(raw_script, api_key, speed, now_listen_pcm, progres
     for line in lines:
         m = LINE_PATTERN.match(line)
         if m:
-            parsed_lines.append((m.group(1), m.group(2).strip()))
+            role = m.group(1).strip()
+            emotion = m.group(2).strip() if m.group(2) else None
+            text = m.group(3).strip()
+            parsed_lines.append((role, emotion, text))
         else:
-            parsed_lines.append(("Narrator", line))
+            parsed_lines.append(("Narrator", None, line))
 
     question_item = None
     dialogue_items = []
 
-    # If first line contains pause tags or is Man_N, treat as question/prompt
-    first_role, first_text = parsed_lines[0]
+    # If first line contains pause tags or role is Man_N/Narrator, treat as question/prompt
+    first_role, first_emotion, first_text = parsed_lines[0]
     if "<#" in first_text or first_role in ["Man_N", "Narrator"]:
-        question_item = (first_role, first_text)
+        question_item = (first_role, first_emotion, first_text)
         dialogue_items = parsed_lines[1:]
     else:
         dialogue_items = parsed_lines
@@ -340,43 +379,47 @@ async def build_audio_master(raw_script, api_key, speed, now_listen_pcm, progres
     full_pcm = b""
     if question_item:
         if progress_cb:
-            progress_cb(f"正在录制题干导语...", 0.1)
-        q_pcm = await process_question_text(question_item[0], question_item[1], api_key, speed)
+            progress_cb("正在录制题干导语...", 0.1)
+        q_pcm = await process_question_text(question_item[0], question_item[2], question_item[1],
+                                            api_key, speed, model_name, voice_map)
         full_pcm += q_pcm
         step_idx += 1
 
     dialogue_pcms = []
-    for role, text in dialogue_items:
+    for role, emotion, text in dialogue_items:
         step_idx += 1
         pct = 0.1 + 0.7 * (step_idx / max(1, total_steps))
+        emo_tag = f" ({emotion})" if emotion else ""
         if progress_cb:
-            progress_cb(f"正在录制角色 [{role}]...", pct)
-        pcm = await synthesize_speech_segment(text, role, api_key, speed)
+            progress_cb(f"正在录制角色 [{role}{emo_tag}]...", pct)
+        pcm = await synthesize_speech_segment(text, role, api_key, speed, model_name, voice_map, emotion)
         dialogue_pcms.append(pcm)
 
-    # Build dialogue block with 0.5s turn pauses
+    # Build dialogue block with turn pauses
     dialogue_block = b""
     for i, pcm in enumerate(dialogue_pcms):
         dialogue_block += pcm
         if i < len(dialogue_pcms) - 1:
-            dialogue_block += create_silence_pcm(0.5)
+            dialogue_block += create_silence_pcm(turn_pause)
 
-    # Assemble master track:
-    # Pass 1 + 1.5s + Now listen again + 1.5s + Pass 2 + 2.0s
+    # Assemble master track: Pass 1 + [Now listen again + Pass 2 if double pass] + end pause
     if progress_cb:
-        progress_cb("正在执行双遍母带对齐与缝合...", 0.9)
+        progress_cb("正在执行母带拼接与无损对齐...", 0.9)
 
     full_pcm += dialogue_block
-    full_pcm += create_silence_pcm(1.5)
-    if now_listen_pcm:
-        full_pcm += now_listen_pcm
-    full_pcm += create_silence_pcm(1.5)
-    full_pcm += dialogue_block
-    full_pcm += create_silence_pcm(2.0)
+
+    if is_double_pass:
+        full_pcm += create_silence_pcm(1.5)
+        if now_listen_pcm:
+            full_pcm += now_listen_pcm
+        full_pcm += create_silence_pcm(1.5)
+        full_pcm += dialogue_block
+
+    full_pcm += create_silence_pcm(end_pause)
 
     # Convert PCM to MP3
-    temp_wav = "/tmp/temp_master.wav"
-    temp_mp3 = "/tmp/temp_master.mp3"
+    temp_wav = f"/tmp/temp_master_{os.getpid()}.wav"
+    temp_mp3 = f"/tmp/temp_master_{os.getpid()}.mp3"
 
     with wave.open(temp_wav, "wb") as w:
         w.setnchannels(1)
@@ -404,32 +447,38 @@ async def build_audio_master(raw_script, api_key, speed, now_listen_pcm, progres
 
     return mp3_bytes, duration_sec
 
-def generate_excel_template():
+def generate_excel_template(mode="KET"):
     """Generate an in-memory sample Excel template for users to download."""
-    data = [
-        {
-            "文件名": "KET_BA_F17_PART4_1.mp3",
-            "题目标题": "F17 Part 4 题1 (周末活动)",
-            "完整台词剧本": """Man_N|neutral|: <#6#>You will hear two friends talking about their weekend plans. What did the boy decide to do on Saturday?<#2#>
+    if mode == "KET":
+        data = [
+            {
+                "文件名": "KET_BA_F17_PART4_1.mp3",
+                "题目标题": "F17 Part 4 题1 (周末活动)",
+                "完整台词剧本": """Man_N|neutral|: <#6#>You will hear two friends talking about their weekend plans. What did the boy decide to do on Saturday?<#2#>
 Girl|friendly|: Are you coming on the cinema trip with our class this Saturday, Kevin?
 Boy|calm|: I wanted to see that new film, but my cousin is visiting us. We bought tickets for the basketball game at the sports centre.
 Girl|happy|: Oh, have a wonderful time there!<#2#>"""
-        },
-        {
-            "文件名": "KET_BA_F17_PART4_2.mp3",
-            "题目标题": "F17 Part 4 题2 (骑行计划)",
-            "完整台词剧本": """Man_N|neutral|: <#6#>You will hear a girl talking to her father about cycling. Why does the girl want to cycle tomorrow instead of today?<#2#>
+            },
+            {
+                "文件名": "KET_BA_F17_PART4_2.mp3",
+                "题目标题": "F17 Part 4 题2 (骑行计划)",
+                "完整台词剧本": """Man_N|neutral|: <#6#>You will hear a girl talking to her father about cycling. Why does the girl want to cycle tomorrow instead of today?<#2#>
 Girl|calm|: Dad, the weather report says it will rain heavily this afternoon. Can we go cycling along the river tomorrow morning?
 Man|friendly|: Tomorrow morning will be sunny and dry. But don't you have your piano practice then?
 Girl|happy|: My teacher moved it to Sunday, so tomorrow morning is completely free!<#2#>"""
-        },
-        {
-            "文件名": "KET_BA_F17_PART4_3.mp3",
-            "题目标题": "F17 Part 4 题3 (课堂作业)",
-            "完整台词剧本": """Man_N|neutral|: <#6#>You will hear a teacher talking to her class. What should the students bring tomorrow?<#2#>
-Woman|friendly|: Remember that tomorrow we will work on our science posters. Please make sure to bring your colored pens and a pair of scissors.<#2#>"""
-        }
-    ]
+            }
+        ]
+    else:
+        data = [
+            {
+                "文件名": "EXAM_LISTENING_01.mp3",
+                "题目标题": "情景对话 1 (问路与介绍)",
+                "完整台词剧本": """Man_N|neutral|: Listen to the conversation between a tourist and a guide.<#2#>
+Tourist|surprised|: Excuse me, is the science museum open today?
+Guide|friendly|: Yes, it is open until six o'clock this evening!
+Tourist|happy|: Thank you very much! (laughs)<#2#>"""
+            }
+        ]
     df = pd.DataFrame(data)
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -441,69 +490,176 @@ Woman|friendly|: Remember that tomorrow we will work on our science posters. Ple
 ASSET_PATH = os.path.join(os.path.dirname(__file__), "assets", "now_listen_again.mp3")
 now_listen_pcm = get_now_listen_again_pcm(ASSET_PATH)
 
-# Sidebar Navigation
+# ================= SIDEBAR & WORKBENCH MODES =================
 with st.sidebar:
-    st.markdown("### 🎙️ 录音机与母带配置")
+    st.markdown("### 🎛️ 录音棚模式选择")
+    app_mode = st.radio(
+        "工作模式：",
+        ["🎯 剑桥 KET 官方标准（锁定区）", "🎛️ 通用高级调音模式（全能自由区）"],
+        index=0,
+        help="【KET 标准】锁定官方参数与音量防呆防错；【通用模式】解锁模型切换、自定义音色ID、情绪与单双遍自由配置"
+    )
+
     api_key = st.text_input("MiniMax API Key", value=DEFAULT_API_KEY, type="password")
-    speed = st.slider("录音语速 (Speed)", min_value=0.5, max_value=1.2, value=0.8, step=0.05,
-                      help="剑桥官方 KET 听力标准语速建议保持 0.8x")
-    
-    st.markdown("---")
-    st.markdown("#### 🔊 当前角色音量规格")
-    st.markdown("""
-    - 👩 **Woman (老师/妈妈)**: <span style="color:#d97706; font-weight:700;">2.0x (增强)</span>
-    - 👧 **Girl (女孩)**: <span style="color:#2563eb; font-weight:700;">1.0x (标准)</span>
-    - 👦 **Boy (男孩)**: <span style="color:#2563eb; font-weight:700;">1.0x (标准)</span>
-    - 👨 **Man/Narrator (男声/旁白)**: <span style="color:#2563eb; font-weight:700;">1.0x (标准)</span>
-    """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("#### ⏱️ 数字无声对齐规范")
-    st.caption("• 读题开头部物理静音: **6.0s** (`<#6#>`)")
-    st.caption("• 角色交替气口间隔: **0.5s** (自动生成)")
-    st.caption("• Now listen again 提示音前后: **各 1.5s**")
-    st.caption("• 答题结尾缓冲静音: **2.0s** (`<#2#>`)")
+
+    # Mode-based Parameters
+    if "KET" in app_mode:
+        selected_model = KET_DEFAULT_MODEL
+        speed = 0.8
+        is_double_pass = True
+        use_nla = True
+        active_voice_map = {k: {"voice_id": v["voice_id"], "vol": v["vol"], "pitch": v["pitch"]} for k, v in KET_VOICES.items()}
+        turn_pause = 0.5
+        end_pause = 2.0
+
+        st.markdown("#### 🔒 KET 官方规范已锁定")
+        st.success("✓ 剑桥官方标准参数锁定中（防呆防错）")
+        st.caption("• 引擎模型: **speech-2.6-hd**")
+        st.caption("• 官方语速: **0.8x**")
+        st.caption("• 播放结构: **双遍对齐 + Now listen again**")
+        st.caption("• 女人 (Woman): **2.0x 增强音量**")
+        st.caption("• 女孩 (Girl): **1.0x 标准音量**")
+        st.caption("• 男声 / 男孩: **1.0x 标准音量**")
+        st.caption("• 审题静音: **6.0s** (`<#6#>`) | 结尾: **2.0s**")
+
+    else:
+        st.markdown("#### ⚙️ MiniMax 引擎与参数设置")
+        selected_model = st.selectbox(
+            "选择 MiniMax 语音模型：",
+            ["speech-2.6-hd", "speech-2.8-hd", "speech-2.6-turbo", "speech-2.8-turbo"],
+            index=0,
+            help="speech-2.6-hd: 极致音质与韵律(推荐)；speech-2.8-hd: 最新旗舰架构；turbo: 超低延迟快速出样"
+        )
+        speed = st.slider("全局语速 (Speed)", min_value=0.5, max_value=1.5, value=0.85, step=0.05)
+
+        st.markdown("#### ⏱️ 母带播放结构设置")
+        pass_mode = st.radio("播放遍数：", ["双遍复读 (Double-Pass)", "单遍播放 (Single-Pass)"], index=0)
+        is_double_pass = (pass_mode == "双遍复读 (Double-Pass)")
+        use_nla = st.checkbox("复读间插入 'Now listen again' 提示音", value=True) if is_double_pass else False
+        turn_pause = st.slider("角色交替气口间隔 (秒)", min_value=0.1, max_value=1.5, value=0.5, step=0.1)
+        end_pause = st.slider("答题结尾缓冲静音 (秒)", min_value=0.5, max_value=4.0, value=2.0, step=0.5)
+
+        active_voice_map = {k: {"voice_id": v["voice_id"], "vol": v["vol"], "pitch": v["pitch"]} for k, v in st.session_state.custom_roles.items()}
 
     st.markdown("---")
     if st.button("🚪 退出登录", use_container_width=True):
         st.session_state.authenticated = False
         st.rerun()
 
-# Studio Header Banner
-st.markdown("""
+# ================= MAIN UI HEADER BANNER =================
+is_ket_mode = "KET" in app_mode
+badge_mode_html = (
+    '<span class="spec-badge ket-locked">🔒 剑桥 KET 官方标准锁定区</span>'
+    if is_ket_mode else
+    '<span class="spec-badge custom-mode">🎛️ 通用高级调音模式 (模型/音色ID/情绪已解锁)</span>'
+)
+
+st.markdown(f"""
 <div class="studio-header">
-    <h1>🎙️ KET / PET 听力音频自动化母带工作台</h1>
-    <p>自动化多角色母带合成 · 双遍结构无损对齐 · 绝对数字零底噪物理静音 · 女声防爆音强化标准</p>
+    <h1>🎙️ KET & 通用听力音频自动化工作台</h1>
+    <p>剑桥标准母带对齐 · 自由自定义音色与情绪 · 绝对数字零底噪物理静音 · Excel 批量极速生成</p>
     <div class="badge-container">
-        <span class="spec-badge green">✓ MiniMax speech-2.6-hd</span>
-        <span class="spec-badge highlight">★ 女人音量: 2.0x</span>
+        {badge_mode_html}
+        <span class="spec-badge">模型: {selected_model}</span>
+        <span class="spec-badge">语速: {speed}x</span>
+        <span class="spec-badge highlight">女人音量: 2.0x</span>
         <span class="spec-badge">女孩音量: 1.0x</span>
-        <span class="spec-badge">男声音量: 1.0x</span>
-        <span class="spec-badge">官方语速: 0.8x</span>
-        <span class="spec-badge">双遍自动无缝复用</span>
+        <span class="spec-badge">{"双遍对齐" if is_double_pass else "单遍播放"}</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+# Custom Role Manager Expander in Custom Mode
+if not is_ket_mode:
+    with st.expander("🎭 角色声线库与自定义音色 ID 管理台 (点击展开/配置)", expanded=False):
+        st.caption("您可以自由为角色绑定 MiniMax 官方音色 ID，或粘贴团队在 MiniMax 控制台自建复刻的专属声音 ID。")
+
+        col_c1, col_c2 = st.columns([3, 2])
+        with col_c1:
+            st.markdown("##### 当前已配置的角色清单：")
+            for role_name, conf in list(st.session_state.custom_roles.items()):
+                c1, c2, c3, c4 = st.columns([1.2, 2.2, 1.2, 0.8])
+                with c1:
+                    st.write(f"**{role_name}** ({conf.get('desc', '')})")
+                with c2:
+                    new_vid = st.text_input(f"Voice ID", value=conf['voice_id'], key=f"vid_{role_name}", label_visibility="collapsed")
+                    st.session_state.custom_roles[role_name]['voice_id'] = new_vid
+                with c3:
+                    new_vol = st.number_input(f"Vol", min_value=0.1, max_value=5.0, value=float(conf['vol']), step=0.1, key=f"vol_{role_name}", label_visibility="collapsed")
+                    st.session_state.custom_roles[role_name]['vol'] = new_vol
+                with c4:
+                    if st.button("🗑️", key=f"del_{role_name}", help=f"删除角色 {role_name}"):
+                        if len(st.session_state.custom_roles) > 1:
+                            del st.session_state.custom_roles[role_name]
+                            st.rerun()
+
+        with col_c2:
+            st.markdown("##### ➕ 新增自定义角色：")
+            with st.form("add_role_form"):
+                add_name = st.text_input("角色代码 (如 Teacher / Doctor / Grandpa)", placeholder="Doctor")
+                add_desc = st.text_input("中文说明", placeholder="医生")
+                add_vid = st.text_input("音色 ID (Voice ID)", value="voice_1766653420_c08e99bd", help="可填写官方音色ID或复刻声音ID")
+                add_vol = st.slider("音量倍率 (Volume)", min_value=0.5, max_value=3.0, value=1.0, step=0.1)
+                add_pitch = st.slider("音调微调 (Pitch)", min_value=-12, max_value=12, value=0, step=1)
+                
+                if st.form_submit_button("✅ 确认添加角色"):
+                    if add_name.strip():
+                        st.session_state.custom_roles[add_name.strip()] = {
+                            "voice_id": add_vid.strip(),
+                            "vol": float(add_vol),
+                            "pitch": int(add_pitch),
+                            "desc": add_desc.strip()
+                        }
+                        st.success(f"已添加角色 [{add_name}]！")
+                        st.rerun()
 
 # Tabs
 tab_excel, tab_single, tab_batch, tab_help = st.tabs([
     "📊 Excel 批量导入生成",
     "📝 单题精细录制与试听",
     "📦 文本快速批量录制",
-    "📖 语法与使用规范"
+    "📖 语法与音色速查"
 ])
+
+# Quick tag helper banner (MiniMax Style)
+def render_quick_tags_bar():
+    st.markdown("""
+    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px;">
+        <span style="color: #64748b; font-weight: 600; margin-right: 8px;">快捷语法参考 (复制即用)：</span><br>
+        <span style="color:#475569; font-weight:500;">🎭 情绪：</span>
+        <span class="tag-pill">|happy|</span>
+        <span class="tag-pill">|calm|</span>
+        <span class="tag-pill">|sad|</span>
+        <span class="tag-pill">|friendly|</span>
+        <span class="tag-pill">|surprised|</span>
+        <span class="tag-pill">|whisper|</span>
+        <span style="color:#475569; font-weight:500; margin-left: 10px;">💬 语气词：</span>
+        <span class="tag-pill">(laughs)</span>
+        <span class="tag-pill">(chuckle)</span>
+        <span class="tag-pill">(sighs)</span>
+        <span class="tag-pill">(breath)</span>
+        <span class="tag-pill">(gasps)</span>
+        <span style="color:#475569; font-weight:500; margin-left: 10px;">⏱️ 静音：</span>
+        <span class="tag-pill">&lt;#6#&gt;</span>
+        <span class="tag-pill">&lt;#2#&gt;</span>
+        <span class="tag-pill">&lt;#0.5#&gt;</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 # ----------------- TAB 1: EXCEL BATCH PROCESSING -----------------
 with tab_excel:
     st.subheader("📊 Excel 批量导入生成听力音频")
-    st.caption("上传整理好的 Excel 文件，系统将自动解析每道题目的台词剧本，批量合成高保真 MP3，并提供打包 ZIP 下载。")
+    mode_label = "剑桥 KET 官方标准" if is_ket_mode else f"通用模式 ({selected_model})"
+    st.caption(f"当前运行模式：**{mode_label}**。上传 Excel 文件，系统自动解析剧本并批量生成完整母带。")
 
-    col_btn1, col_btn2 = st.columns([1, 3])
+    col_btn1, col_btn2 = st.columns([1.2, 3])
     with col_btn1:
         st.download_button(
             label="📥 下载标准 Excel 模板",
-            data=generate_excel_template(),
-            file_name="KET_听力题目导入模板.xlsx",
+            data=generate_excel_template("KET" if is_ket_mode else "CUSTOM"),
+            file_name="KET_听力题目导入模板.xlsx" if is_ket_mode else "通用听力题目导入模板.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
@@ -540,7 +696,7 @@ with tab_excel:
                 script_val = str(row.get(selected_script_col, "")).strip()
                 if script_val and script_val.lower() != "nan":
                     if not fname_val or fname_val.lower() == "nan":
-                        fname_val = f"KET_QUESTION_{idx+1}.mp3"
+                        fname_val = f"QUESTION_{idx+1}.mp3"
                     if not fname_val.lower().endswith(".mp3"):
                         fname_val += ".mp3"
                     valid_tasks.append((fname_val, script_val))
@@ -556,6 +712,8 @@ with tab_excel:
                     zip_buffer = io.BytesIO()
                     results = []
 
+                    actual_nla = now_listen_pcm if (is_double_pass and use_nla) else None
+
                     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                         for idx, (fname, script_text) in enumerate(valid_tasks):
                             status_placeholder.markdown(f"**正在录制第 [{idx+1}/{len(valid_tasks)}] 题**: `{fname}` ...")
@@ -566,7 +724,11 @@ with tab_excel:
 
                             try:
                                 mp3_bytes, dur = asyncio.run(
-                                    build_audio_master(script_text, api_key, speed, now_listen_pcm, row_progress)
+                                    build_audio_master(
+                                        script_text, api_key, speed, selected_model,
+                                        active_voice_map, is_double_pass, actual_nla,
+                                        turn_pause, end_pause, row_progress
+                                    )
                                 )
                                 zip_file.writestr(fname, mp3_bytes)
                                 results.append({
@@ -593,7 +755,7 @@ with tab_excel:
                     # ZIP Download Button
                     zip_buffer.seek(0)
                     now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    zip_filename = f"KET_听力批量生成_{now_str}.zip"
+                    zip_filename = f"听力音频批量导出_{now_str}.zip"
 
                     st.download_button(
                         label=f"📦 一键下载全部音频压缩包 ({zip_filename})",
@@ -603,7 +765,7 @@ with tab_excel:
                         use_container_width=True
                     )
 
-                    # Show synthesis summary
+                    # Summary table
                     st.markdown("#### 📋 生成结果清单")
                     summary_df = pd.DataFrame([{k: v for k, v in r.items() if k != 'mp3_bytes'} for r in results])
                     st.dataframe(summary_df, use_container_width=True)
@@ -630,12 +792,14 @@ Girl|happy|: Oh, have a wonderful time there!<#2#>"""
 with tab_single:
     col_l, col_r = st.columns([3, 2])
     with col_l:
-        st.subheader("📝 单题台词编辑")
+        st.subheader("📝 单题台词编辑与试听")
+        render_quick_tags_bar()
+
         script_input = st.text_area(
             "输入台词剧本",
             value=SAMPLE_TEXT,
             height=280,
-            help="包含角色标识与 <#x#> 静音标记"
+            help="支持角色标识、情绪标记（如 |happy|）与停顿标记（如 <#6#>）"
         )
         file_name = st.text_input("导出文件名", value="KET_BA_LISTENING_PART1_1.mp3")
         
@@ -650,10 +814,16 @@ with tab_single:
                     status_text.text(msg)
                     progress_bar.progress(val)
 
+                actual_nla = now_listen_pcm if (is_double_pass and use_nla) else None
+
                 try:
                     with st.spinner("正在合成并精密组装中，请稍候..."):
                         mp3_data, dur = asyncio.run(
-                            build_audio_master(script_input, api_key, speed, now_listen_pcm, update_progress)
+                            build_audio_master(
+                                script_input, api_key, speed, selected_model,
+                                active_voice_map, is_double_pass, actual_nla,
+                                turn_pause, end_pause, update_progress
+                            )
                         )
                     progress_bar.progress(1.0)
                     status_text.success(f"🎉 录制完成！总时长: {dur:.2f} 秒，文件大小: {len(mp3_data)/1024:.1f} KB")
@@ -674,6 +844,7 @@ with tab_single:
 # ----------------- TAB 3: TEXT BATCH -----------------
 with tab_batch:
     st.subheader("📦 文本批量录制（多题一键生成打包 ZIP）")
+    render_quick_tags_bar()
     st.markdown("将多道题目用 **三个横线 `---`** 分隔开，每题第一行可以写 `# 文件名.mp3` 指定导出文件名：")
 
     BATCH_SAMPLE = """# KET_BA_F17_LISTENING_PART4_1.mp3
@@ -690,7 +861,7 @@ Girl|calm|: Dad, the weather report says it will rain heavily this afternoon. Ca
 Man|friendly|: Tomorrow morning will be sunny and dry. But don't you have your piano practice then?
 Girl|happy|: My teacher moved it to Sunday, so tomorrow morning is completely free!<#2#>"""
 
-    batch_input = st.text_area("批量文本剧本输入框", value=BATCH_SAMPLE, height=350)
+    batch_input = st.text_area("批量文本剧本输入框", value=BATCH_SAMPLE, height=340)
 
     if st.button("⚡ 批量极速生成全部音频", type="primary", use_container_width=True):
         blocks = [b.strip() for b in batch_input.split("---") if b.strip()]
@@ -701,10 +872,12 @@ Girl|happy|: My teacher moved it to Sunday, so tomorrow morning is completely fr
             batch_progress = st.progress(0.0)
             batch_status = st.empty()
 
+            actual_nla = now_listen_pcm if (is_double_pass and use_nla) else None
+
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                 for idx, block in enumerate(blocks):
                     lines = block.splitlines()
-                    fname = f"KET_LISTENING_{idx+1}.mp3"
+                    fname = f"LISTENING_{idx+1}.mp3"
                     script_lines = []
                     for l in lines:
                         if l.strip().startswith("#") and l.strip().endswith(".mp3"):
@@ -717,7 +890,11 @@ Girl|happy|: My teacher moved it to Sunday, so tomorrow morning is completely fr
                     
                     try:
                         mp3_data, dur = asyncio.run(
-                            build_audio_master(script_content, api_key, speed, now_listen_pcm)
+                            build_audio_master(
+                                script_content, api_key, speed, selected_model,
+                                active_voice_map, is_double_pass, actual_nla,
+                                turn_pause, end_pause
+                            )
                         )
                         zip_file.writestr(fname, mp3_data)
                     except Exception as e:
@@ -730,17 +907,31 @@ Girl|happy|: My teacher moved it to Sunday, so tomorrow morning is completely fr
             st.download_button(
                 label="📦 一键打包下载全部音频 (ZIP 压缩包)",
                 data=zip_buffer,
-                file_name="KET_听力音频批量导出.zip",
+                file_name="听力音频批量导出.zip",
                 mime="application/zip",
                 use_container_width=True
             )
 
 # ----------------- TAB 4: HELP & DOCUMENTATION -----------------
 with tab_help:
-    st.subheader("💡 剧本格式与录音规范说明")
+    st.subheader("💡 剧本格式、情绪与音色速查手册")
     st.markdown("""
-### 1. 角色标识与音量规格
-| 角色前缀 | 代表身份 | 对应音色 | 音量倍率 (Volume) | 规范说明 |
+### 1. 台词剧本语法规范
+* **标准格式**：`角色名|情绪|: 台词文本` 或 `角色名: 台词文本`
+* **情绪标签支持**：
+  * `|happy|` 或 `|friendly|`：开心愉悦、热情友好
+  * `|calm|`：沉着平静、自然对话
+  * `|sad|`：悲伤低落
+  * `|angry|`：生气严肃
+  * `|surprised|`：惊讶惊奇
+  * `|whisper|`：悄悄话低语（仅 Speech 2.6 系列模型生效）
+* **语气词标签（直接写在台词文本中）**：
+  * `(laughs)` 笑声，`(chuckle)` 轻笑，`(coughs)` 咳嗽，`(sighs)` 叹气，`(breath)` 换气，`(gasps)` 倒吸气
+
+---
+
+### 2. KET 官方标准模式的角色与音量规范
+| 角色前缀 | 代表身份 | 对应音色 ID | 音量倍率 (Volume) | 规范说明 |
 | :--- | :--- | :--- | :--- | :--- |
 | **`Woman`** | 老师 / 妈妈 / 成年女性 | `clone_voice_narrator` | **2.0 (已增强)** | 增强女生成人声音穿透力，防过载限制 |
 | **`Girl`** | 女学生 / 小女孩 | `ttv-voice-...-BvMx9oDR` | **1.0 (标准)** | 保持自然清晰童声 |
@@ -749,16 +940,9 @@ with tab_help:
 
 ---
 
-### 2. 停顿控制标记 (`<#秒数#>`)
-* `<#6#>`：**物理零气流静音 6.0 秒**（用于题干前留给考生的审题阅读时间）。
-* `<#2#>`：**物理零气流静音 2.0 秒**（用于题干播完后缓冲，以及全题双遍答题结束后的终点静音）。
-
----
-
-### 3. 双遍母带全自动对齐工程
-1. **题干导语**：自动解析 `<#6#>` 和 `<#2#>` 注入真实零字节静音。
-2. **第一遍对话**：多角色依次发言，交替发言之间自动插入 **0.5s** 自然气口气流间隔。
-3. **提示重听**：对话结束后留白 **1.5s** $\\rightarrow$ 播放剑桥官方纯正 `Now listen again` 原声 $\\rightarrow$ 留白 **1.5s**。
-4. **第二遍对话**：100% 自动对齐复现第一遍对话，保证母带发音一致性。
-5. **结束缓冲**：结尾自动添加 **2.0s** 数字静音收尾。
+### 3. 通用模式自由度说明
+* 可在左侧边栏切换至【通用高级调音模式】；
+* 自由切换 MiniMax 模型：`speech-2.6-hd`（高韵律推荐）、`speech-2.8-hd`（最新旗舰）、`turbo`（低延迟测试）；
+* 自由添加新角色（如 `Doctor`, `Tourist`, `Grandpa` 等），并直接填入任意自定义 MiniMax `voice_id`；
+* 自由切换单遍朗读或双遍复读。
     """)
