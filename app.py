@@ -132,8 +132,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Constants & Default Configurations
-DEFAULT_API_KEY = st.secrets.get("MINIMAX_API_KEY", os.environ.get("MINIMAX_API_KEY", "sk-api-KDxzkUn1rETYdUFlI2sKMwO4pZbJUSkNJQaiK0vIe4H8Bp85IKDu-P-w-cEM0jo2PTQQtw79jQE9-3WQ1y36aN5FkM_NcbrwU11_uYbj8e6A70UzLhWlYSI"))
-DEFAULT_PASSWORD = st.secrets.get("ACCESS_PASSWORD", os.environ.get("ACCESS_PASSWORD", "ket2026"))
+try:
+    DEFAULT_API_KEY = st.secrets.get("MINIMAX_API_KEY", "sk-api-KDxzkUn1rETYdUFlI2sKMwO4pZbJUSkNJQaiK0vIe4H8Bp85IKDu-P-w-cEM0jo2PTQQtw79jQE9-3WQ1y36aN5FkM_NcbrwU11_uYbj8e6A70UzLhWlYSI")
+except Exception:
+    DEFAULT_API_KEY = os.environ.get("MINIMAX_API_KEY", "sk-api-KDxzkUn1rETYdUFlI2sKMwO4pZbJUSkNJQaiK0vIe4H8Bp85IKDu-P-w-cEM0jo2PTQQtw79jQE9-3WQ1y36aN5FkM_NcbrwU11_uYbj8e6A70UzLhWlYSI")
+
+try:
+    DEFAULT_PASSWORD = st.secrets.get("ACCESS_PASSWORD", "ket2026")
+except Exception:
+    DEFAULT_PASSWORD = os.environ.get("ACCESS_PASSWORD", "ket2026")
 SAMPLE_RATE = 32000
 
 # Standard KET Fixed Specifications (Locked)
