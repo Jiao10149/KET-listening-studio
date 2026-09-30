@@ -831,7 +831,7 @@ tab_excel, tab_single, tab_batch, tab_history, tab_help = st.tabs([
     "📊 Excel 批量导入生成",
     "📝 单题精细录制与试听",
     "📦 文本快速批量录制",
-    f"📜 录制历史记录 ({hist_count})",
+    f"⚖️ 录音对比与历史大厅 ({hist_count})",
     "📖 语法与音色速查"
 ])
 
@@ -1065,18 +1065,103 @@ with tab_single:
                         mp3_bytes=mp3_data
                     )
 
-                    with col_r:
-                        st.subheader("🎵 在线试听与下载")
-                        st.audio(mp3_data, format="audio/mp3")
-                        st.download_button(
-                            label=f"📥 立即下载 {file_name}",
-                            data=mp3_data,
-                            file_name=file_name,
-                            mime="audio/mp3",
-                            use_container_width=True
-                        )
+                    st.markdown("##### 🎵 本次生成音频快速试听与下载：")
+                    st.audio(mp3_data, format="audio/mp3")
+                    st.download_button(
+                        label=f"📥 立即下载 {file_name}",
+                        data=mp3_data,
+                        file_name=file_name,
+                        mime="audio/mp3",
+                        use_container_width=True
+                    )
                 except Exception as e:
                     status_text.error(f"合成过程出错: {e}")
+
+    # Right Column: MiniMax Style Live History Sidebar
+    with col_r:
+        hist_records_single = load_history()
+        
+        col_rh1, col_rh2 = st.columns([2.2, 1])
+        with col_rh1:
+            st.markdown(f"#### 🕒 历史记录 ({len(hist_records_single)})")
+        with col_rh2:
+            if hist_records_single:
+                if st.button("🗑️ 清空", key="clear_hist_single_col", help="清空所有历史录音", use_container_width=True):
+                    clear_all_history()
+                    st.rerun()
+
+        if not hist_records_single:
+            st.markdown("""
+            <div style="border: 2px dashed #cbd5e1; border-radius: 12px; padding: 40px 20px; text-align: center; color: #94a3b8; background: #f8fafc; margin-top: 10px;">
+                <p style="font-size: 28px; margin: 0 0 10px 0;">🎙️</p>
+                <p style="font-weight: 600; color: #64748b; margin-bottom: 6px;">暂无历史录制记录</p>
+                <p style="font-size: 13px; margin: 0;">在左侧点击【🚀 开始一键合成】后，生成的音频将实时沉淀在此处供试听、下载或一键回填应用。</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            with st.container(height=640):
+                for idx, rec in enumerate(hist_records_single):
+                    rec_id = rec.get("id")
+                    title = rec.get("title", f"录音_{idx+1}.mp3")
+                    file_name_item = rec.get("file_name")
+                    snippet = rec.get("snippet", "")
+                    audio_path = os.path.join(HISTORY_DIR, file_name_item) if file_name_item else None
+                    has_audio = audio_path and os.path.exists(audio_path)
+
+                    is_newest = (idx == 0)
+                    border_style = "2px solid #3b82f6" if is_newest else "1px solid #e2e8f0"
+                    bg_style = "#f0f7ff" if is_newest else "#ffffff"
+
+                    st.markdown(f"""
+                    <div style="border: {border_style}; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; background: {bg_style}; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span style="font-weight: 700; font-size: 13.5px; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 210px;">
+                                {'🆕 ' if is_newest else ''}{title}
+                            </span>
+                            <span style="font-size: 11px; color: #94a3b8;">{rec.get('time', '').split(' ')[-1]}</span>
+                        </div>
+                        <div style="font-size: 12px; color: #475569; margin-bottom: 6px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                            {snippet}
+                        </div>
+                        <div style="font-size: 11px; color: #64748b;">
+                            <span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: 500;">{rec.get('model', '')}</span>
+                            <span style="margin: 0 4px;">·</span>
+                            <span>{rec.get('speed', '')}x</span>
+                            <span style="margin: 0 4px;">·</span>
+                            <span>{rec.get('duration', '')}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    if has_audio:
+                        with open(audio_path, "rb") as af:
+                            audio_bytes = af.read()
+                        st.audio(audio_bytes, format="audio/mp3")
+
+                        c_btn1, c_btn2, c_btn3 = st.columns([1.1, 1.1, 0.8])
+                        with c_btn1:
+                            if st.button("📋 应用", key=f"apply_s_{rec_id}", help="将此剧本台词回填到左侧编辑器", use_container_width=True):
+                                st.session_state["single_script_input"] = rec.get("script", "")
+                                st.session_state["single_filename_input"] = title
+                                st.toast(f"已回填台词到编辑器！", icon="✅")
+                                st.rerun()
+                        with c_btn2:
+                            st.download_button(
+                                label="📥 下载",
+                                data=audio_bytes,
+                                file_name=title,
+                                mime="audio/mp3",
+                                key=f"dl_card_s_{rec_id}",
+                                use_container_width=True
+                            )
+                        with c_btn3:
+                            if st.button("🗑️", key=f"del_card_s_{rec_id}", help="删除此条", use_container_width=True):
+                                delete_history_record(rec_id)
+                                st.rerun()
+                    else:
+                        st.caption("音频文件已不在本地缓存中")
+                    
+                    st.markdown("<hr style='margin: 8px 0 12px 0; border: none; border-top: 1px dashed #e2e8f0;'>", unsafe_allow_html=True)
 
 # ----------------- TAB 3: TEXT BATCH -----------------
 with tab_batch:
