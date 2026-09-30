@@ -1016,9 +1016,14 @@ with tab_single:
         st.subheader("📝 单题台词编辑与试听")
         render_quick_tags_bar()
 
-        if "single_script_input" not in st.session_state:
+        if "pending_script" in st.session_state:
+            st.session_state["single_script_input"] = st.session_state.pop("pending_script")
+        elif "single_script_input" not in st.session_state:
             st.session_state["single_script_input"] = SAMPLE_TEXT
-        if "single_filename_input" not in st.session_state:
+
+        if "pending_filename" in st.session_state:
+            st.session_state["single_filename_input"] = st.session_state.pop("pending_filename")
+        elif "single_filename_input" not in st.session_state:
             st.session_state["single_filename_input"] = "KET_BA_LISTENING_PART1_1.mp3"
 
         script_input = st.text_area(
@@ -1141,8 +1146,8 @@ with tab_single:
                         c_btn1, c_btn2, c_btn3 = st.columns([1.1, 1.1, 0.8])
                         with c_btn1:
                             if st.button("📋 应用", key=f"apply_s_{rec_id}", help="将此剧本台词回填到左侧编辑器", use_container_width=True):
-                                st.session_state["single_script_input"] = rec.get("script", "")
-                                st.session_state["single_filename_input"] = title
+                                st.session_state["pending_script"] = rec.get("script", "")
+                                st.session_state["pending_filename"] = title
                                 st.toast(f"已回填台词到编辑器！", icon="✅")
                                 st.rerun()
                         with c_btn2:
@@ -1360,9 +1365,10 @@ with tab_history:
                             )
                     with c_act2:
                         if st.button("📋 回填到编辑器", key=f"load_hist_{rec_id}", use_container_width=True, help="将该台词和文件名回填到【单题精细录制】编辑器"):
-                            st.session_state["single_script_input"] = rec.get("script", "")
-                            st.session_state["single_filename_input"] = title
+                            st.session_state["pending_script"] = rec.get("script", "")
+                            st.session_state["pending_filename"] = title
                             st.toast(f"已回填台词到【单题精细录制】选项卡！", icon="✅")
+                            st.rerun()
                     with c_act3:
                         if st.button("🗑️", key=f"del_hist_{rec_id}", help="删除此条历史记录"):
                             delete_history_record(rec_id)
