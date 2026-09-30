@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.DS_Store
+data_history/*.mp3
+!data_history/.gitkeep

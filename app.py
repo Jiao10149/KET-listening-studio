@@ -18,6 +18,7 @@ import zipfile
 import subprocess
 import datetime
 import urllib.request
+import uuid
 import numpy as np
 import pandas as pd
 
@@ -246,6 +247,107 @@ if not st.session_state.authenticated:
             st.text_input("访问密码", type="password", key="password_input", on_change=check_password)
             st.caption("提示：如需获取密码请联系录音棚管理员。")
     st.stop()
+
+# ================= HISTORY STORAGE & MANAGEMENT =================
+HISTORY_DIR = os.path.join(os.path.dirname(__file__), "data_history")
+os.makedirs(HISTORY_DIR, exist_ok=True)
+HISTORY_JSON = os.path.join(HISTORY_DIR, "history.json")
+
+def load_history():
+    if not os.path.exists(HISTORY_JSON):
+        return []
+    try:
+        with open(HISTORY_JSON, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_history(records):
+    # Keep at most 50 latest records (MiniMax style)
+    to_keep = records[:50]
+    kept_files = {r.get("file_name") for r in to_keep if r.get("file_name")}
+    
+    # Prune old mp3 files from disk
+    try:
+        for fname in os.listdir(HISTORY_DIR):
+            if fname.endswith(".mp3") and fname not in kept_files:
+                try:
+                    os.remove(os.path.join(HISTORY_DIR, fname))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    try:
+        with open(HISTORY_JSON, "w", encoding="utf-8") as f:
+            json.dump(to_keep, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def add_history_record(title, script, model, speed, mode, duration_sec, mp3_bytes):
+    rec_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    audio_fname = f"{rec_id}.mp3"
+    audio_path = os.path.join(HISTORY_DIR, audio_fname)
+    try:
+        with open(audio_path, "wb") as f:
+            f.write(mp3_bytes)
+    except Exception:
+        pass
+
+    first_line = ""
+    for l in script.splitlines():
+        if l.strip():
+            first_line = l.strip()
+            break
+    snippet = first_line[:75] + ("..." if len(first_line) > 75 else "")
+
+    new_rec = {
+        "id": rec_id,
+        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "title": title or "未命名录音.mp3",
+        "snippet": snippet,
+        "script": script,
+        "model": model,
+        "speed": speed,
+        "mode": "KET 官方标准" if "KET" in mode else "通用高级调音",
+        "duration": f"{duration_sec:.2f}s",
+        "size_kb": f"{len(mp3_bytes)/1024:.1f} KB",
+        "file_name": audio_fname
+    }
+    history = load_history()
+    history.insert(0, new_rec)
+    save_history(history)
+    return new_rec
+
+def delete_history_record(rec_id):
+    history = load_history()
+    new_hist = []
+    for r in history:
+        if r.get("id") == rec_id:
+            fname = r.get("file_name")
+            if fname:
+                p = os.path.join(HISTORY_DIR, fname)
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+        else:
+            new_hist.append(r)
+    save_history(new_hist)
+
+def clear_all_history():
+    history = load_history()
+    for r in history:
+        fname = r.get("file_name")
+        if fname:
+            p = os.path.join(HISTORY_DIR, fname)
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+    save_history([])
 
 # Helper Functions
 def get_now_listen_again_pcm(asset_path):
@@ -720,11 +822,16 @@ if not is_ket_mode:
                         st.success(f"已添加角色 [{add_name}]！")
                         st.rerun()
 
+# Load History
+history_data = load_history()
+hist_count = len(history_data)
+
 # Tabs
-tab_excel, tab_single, tab_batch, tab_help = st.tabs([
+tab_excel, tab_single, tab_batch, tab_history, tab_help = st.tabs([
     "📊 Excel 批量导入生成",
     "📝 单题精细录制与试听",
     "📦 文本快速批量录制",
+    f"📜 录制历史记录 ({hist_count})",
     "📖 语法与音色速查"
 ])
 
@@ -836,6 +943,15 @@ with tab_excel:
                                     )
                                 )
                                 zip_file.writestr(fname, mp3_bytes)
+                                add_history_record(
+                                    title=fname,
+                                    script=script_text,
+                                    model=selected_model,
+                                    speed=speed,
+                                    mode=app_mode,
+                                    duration_sec=dur,
+                                    mp3_bytes=mp3_bytes
+                                )
                                 results.append({
                                     "文件名": fname,
                                     "状态": "✅ 成功",
@@ -900,13 +1016,18 @@ with tab_single:
         st.subheader("📝 单题台词编辑与试听")
         render_quick_tags_bar()
 
+        if "single_script_input" not in st.session_state:
+            st.session_state["single_script_input"] = SAMPLE_TEXT
+        if "single_filename_input" not in st.session_state:
+            st.session_state["single_filename_input"] = "KET_BA_LISTENING_PART1_1.mp3"
+
         script_input = st.text_area(
             "输入台词剧本",
-            value=SAMPLE_TEXT,
+            key="single_script_input",
             height=280,
             help="支持角色标识、情绪标记（如 |happy|）与停顿标记（如 <#6#>）"
         )
-        file_name = st.text_input("导出文件名", value="KET_BA_LISTENING_PART1_1.mp3")
+        file_name = st.text_input("导出文件名", key="single_filename_input")
         
         if st.button("🚀 开始一键合成母带音频", type="primary", use_container_width=True):
             if not script_input.strip():
@@ -932,6 +1053,17 @@ with tab_single:
                         )
                     progress_bar.progress(1.0)
                     status_text.success(f"🎉 录制完成！总时长: {dur:.2f} 秒，文件大小: {len(mp3_data)/1024:.1f} KB")
+
+                    # Add to history records
+                    add_history_record(
+                        title=file_name,
+                        script=script_input,
+                        model=selected_model,
+                        speed=speed,
+                        mode=app_mode,
+                        duration_sec=dur,
+                        mp3_bytes=mp3_data
+                    )
 
                     with col_r:
                         st.subheader("🎵 在线试听与下载")
@@ -1002,6 +1134,15 @@ Girl|happy|: My teacher moved it to Sunday, so tomorrow morning is completely fr
                             )
                         )
                         zip_file.writestr(fname, mp3_data)
+                        add_history_record(
+                            title=fname,
+                            script=script_content,
+                            model=selected_model,
+                            speed=speed,
+                            mode=app_mode,
+                            duration_sec=dur,
+                            mp3_bytes=mp3_data
+                        )
                     except Exception as e:
                         st.error(f"题目 {fname} 合成失败: {e}")
                     
@@ -1017,7 +1158,136 @@ Girl|happy|: My teacher moved it to Sunday, so tomorrow morning is completely fr
                 use_container_width=True
             )
 
-# ----------------- TAB 4: HELP & DOCUMENTATION -----------------
+# ----------------- TAB 4: HISTORY & A/B COMPARISON -----------------
+with tab_history:
+    st.subheader("📜 录制历史记录与效果对比")
+    st.caption("系统自动保留最近生成的 50 条录音，支持在线回听、下载、台词一键回填到单题编辑器，以及 A/B 录音效果横向对比。")
+
+    history_records = load_history()
+
+    # Top Control Bar
+    col_h_info, col_h_clear = st.columns([3, 1])
+    with col_h_info:
+        st.write(f"当前已存储 **{len(history_records)}** / 50 条录音记录。")
+    with col_h_clear:
+        if history_records:
+            if st.button("🗑️ 清空所有历史记录", use_container_width=True):
+                clear_all_history()
+                st.success("所有历史记录已清空！")
+                st.rerun()
+
+    if not history_records:
+        st.info("💡 暂无历史录制记录。在【单题精细录制】、【Excel 批量导入】或【文本快速批量录制】中生成音频后，将自动在此沉淀（最多保留最近 50 条）。")
+    else:
+        # A/B Comparison Tool
+        if len(history_records) >= 2:
+            with st.expander("⚖️ A/B 录音效果对比分析器 (点击展开/对比不同版本)", expanded=False):
+                st.caption("选择任意两段历史录音进行横向对比，可用于评估不同语速、模型或音色的合成表现。")
+                ab_options = [
+                    f"[{idx+1}] {r.get('title', '录音')} ({r.get('model', '')} / {r.get('speed', '')}x / {r.get('duration', '')}) - {r.get('time', '')}"
+                    for idx, r in enumerate(history_records)
+                ]
+                
+                col_sel_a, col_sel_b = st.columns(2)
+                with col_sel_a:
+                    sel_a_idx = st.selectbox("选择样本 A (对照组)：", range(len(ab_options)), format_func=lambda x: ab_options[x], index=0)
+                with col_sel_b:
+                    sel_b_idx = st.selectbox("选择样本 B (实验组)：", range(len(ab_options)), format_func=lambda x: ab_options[x], index=min(1, len(ab_options)-1))
+
+                rec_a = history_records[sel_a_idx]
+                rec_b = history_records[sel_b_idx]
+
+                col_ab_a, col_ab_b = st.columns(2)
+                with col_ab_a:
+                    st.markdown(f"#### 🅰️ 样本 A: `{rec_a.get('title', '')}`")
+                    audio_path_a = os.path.join(HISTORY_DIR, rec_a.get("file_name", ""))
+                    if os.path.exists(audio_path_a):
+                        with open(audio_path_a, "rb") as af:
+                            st.audio(af.read(), format="audio/mp3")
+                    else:
+                        st.caption("音频文件已不在本地缓存中")
+                    st.caption(f"**模型**: {rec_a.get('model')} | **语速**: {rec_a.get('speed')}x | **模式**: {rec_a.get('mode')}")
+                    st.caption(f"**时长**: {rec_a.get('duration')} | **大小**: {rec_a.get('size_kb')} | **时间**: {rec_a.get('time')}")
+                    with st.expander("查看台词剧本 A", expanded=False):
+                        st.code(rec_a.get("script", ""), language="text")
+
+                with col_ab_b:
+                    st.markdown(f"#### 🅱️ 样本 B: `{rec_b.get('title', '')}`")
+                    audio_path_b = os.path.join(HISTORY_DIR, rec_b.get("file_name", ""))
+                    if os.path.exists(audio_path_b):
+                        with open(audio_path_b, "rb") as bf:
+                            st.audio(bf.read(), format="audio/mp3")
+                    else:
+                        st.caption("音频文件已不在本地缓存中")
+                    st.caption(f"**模型**: {rec_b.get('model')} | **语速**: {rec_b.get('speed')}x | **模式**: {rec_b.get('mode')}")
+                    st.caption(f"**时长**: {rec_b.get('duration')} | **大小**: {rec_b.get('size_kb')} | **时间**: {rec_b.get('time')}")
+                    with st.expander("查看台词剧本 B", expanded=False):
+                        st.code(rec_b.get("script", ""), language="text")
+
+        st.markdown("---")
+        st.markdown("#### 📁 历史录音卡片列表")
+
+        for idx, rec in enumerate(history_records):
+            rec_id = rec.get("id")
+            title = rec.get("title", f"录音_{idx+1}.mp3")
+            file_name = rec.get("file_name")
+            audio_path = os.path.join(HISTORY_DIR, file_name) if file_name else None
+            has_audio = audio_path and os.path.exists(audio_path)
+
+            with st.container():
+                st.markdown(f"""
+                <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 18px; margin-bottom: 12px; background: #ffffff;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-weight: 700; font-size: 15px; color: #1e293b;">🎧 #{idx+1} {title}</span>
+                        <span style="font-size: 12px; color: #94a3b8;">{rec.get('time', '')}</span>
+                    </div>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                        <span class="tag-pill" style="background: #e0f2fe; color: #0284c7; border: none;">{rec.get('mode', '模式')}</span>
+                        <span class="tag-pill" style="background: #f3e8ff; color: #7e22ce; border: none;">模型: {rec.get('model', 'speech-2.6-hd')}</span>
+                        <span class="tag-pill" style="background: #fef3c7; color: #b45309; border: none;">语速: {rec.get('speed', 0.8)}x</span>
+                        <span class="tag-pill" style="background: #dcfce7; color: #15803d; border: none;">时长: {rec.get('duration', '-')}</span>
+                        <span class="tag-pill" style="background: #f1f5f9; color: #475569; border: none;">大小: {rec.get('size_kb', '-')}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                col_card_audio, col_card_actions = st.columns([3, 2])
+                with col_card_audio:
+                    if has_audio:
+                        with open(audio_path, "rb") as af:
+                            audio_bytes = af.read()
+                        st.audio(audio_bytes, format="audio/mp3")
+                    else:
+                        audio_bytes = None
+                        st.warning("⚠️ 该历史音频文件已失效或已被清理。")
+
+                with col_card_actions:
+                    c_act1, c_act2, c_act3 = st.columns([1.2, 1.6, 0.8])
+                    with c_act1:
+                        if has_audio and audio_bytes:
+                            st.download_button(
+                                label="📥 下载",
+                                data=audio_bytes,
+                                file_name=title,
+                                mime="audio/mp3",
+                                key=f"dl_hist_{rec_id}",
+                                use_container_width=True
+                            )
+                    with c_act2:
+                        if st.button("📋 回填到编辑器", key=f"load_hist_{rec_id}", use_container_width=True, help="将该台词和文件名回填到【单题精细录制】编辑器"):
+                            st.session_state["single_script_input"] = rec.get("script", "")
+                            st.session_state["single_filename_input"] = title
+                            st.toast(f"已回填台词到【单题精细录制】选项卡！", icon="✅")
+                    with c_act3:
+                        if st.button("🗑️", key=f"del_hist_{rec_id}", help="删除此条历史记录"):
+                            delete_history_record(rec_id)
+                            st.rerun()
+
+                with st.expander("📄 查看完整台词剧本", expanded=False):
+                    st.code(rec.get("script", ""), language="text")
+                st.write("")
+
+# ----------------- TAB 5: HELP & DOCUMENTATION -----------------
 with tab_help:
     st.subheader("💡 剧本格式、情绪与音色速查手册")
     st.markdown("""
