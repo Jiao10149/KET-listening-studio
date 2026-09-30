@@ -17,6 +17,7 @@ import re
 import zipfile
 import subprocess
 import datetime
+import urllib.request
 import numpy as np
 import pandas as pd
 
@@ -259,8 +260,8 @@ def create_silence_pcm(seconds):
     """Generate exact digital silence PCM bytes (Zero-Airflow)."""
     return b'\x00' * int(SAMPLE_RATE * 2 * seconds)
 
-async def synthesize_speech_segment(text, role, api_key, speed, model_name, voice_map, emotion_override=None, retries=5):
-    """Synthesize speech using MiniMax WebSocket API supporting custom voice_id, model, emotions, timeout and exponential backoff."""
+def synthesize_speech_http(text, role, api_key, speed, model_name, voice_map, emotion_override=None, timeout=30):
+    """Synchronous HTTP REST API for MiniMax speech generation (Official t2a_v2)."""
     role_conf = voice_map.get(role, voice_map.get("Man_N", {
         "voice_id": "voice_1766653420_c08e99bd",
         "vol": 1.0,
@@ -270,25 +271,86 @@ async def synthesize_speech_segment(text, role, api_key, speed, model_name, voic
     vol = role_conf.get("vol", 1.0)
     pitch = role_conf.get("pitch", 0)
 
-    url = "wss://api.minimaxi.com/ws/v1/t2a_v2"
-    headers = {"Authorization": f"Bearer {api_key}"}
+    url = "https://api.minimaxi.com/v1/t2a_v2"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
 
+    voice_setting = {
+        "voice_id": voice_id,
+        "speed": speed,
+        "vol": vol,
+        "pitch": pitch,
+        "english_normalization": True
+    }
+    if emotion_override:
+        norm_emotion = EMOTION_MAP.get(emotion_override.lower(), emotion_override.lower())
+        voice_setting["emotion"] = norm_emotion
+
+    payload = {
+        "model": model_name,
+        "text": text,
+        "stream": False,
+        "voice_setting": voice_setting,
+        "audio_setting": {
+            "sample_rate": SAMPLE_RATE,
+            "bitrate": 128000,
+            "format": "pcm",
+            "channel": 1
+        }
+    }
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+    with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
+        res = json.loads(resp.read().decode("utf-8"))
+        base_resp = res.get("base_resp", {})
+        if base_resp.get("status_code", 0) != 0:
+            raise RuntimeError(base_resp.get("status_msg", "MiniMax接口调用失败"))
+        data = res.get("data") or {}
+        audio_hex = data.get("audio") or ""
+        if not audio_hex:
+            raise RuntimeError("MiniMax未返回音频数据")
+        return apply_edge_fade(bytes.fromhex(audio_hex), fade_ms=5)
+
+async def synthesize_speech_segment(text, role, api_key, speed, model_name, voice_map, emotion_override=None, retries=3):
+    """Synthesize speech using official HTTP REST API (primary) with WebSocket fallback."""
+    last_err = "未知原因"
+    loop = asyncio.get_running_loop()
+
+    # Engine 1: HTTP REST (Stateless, high reliability, no websocket teardown issues)
+    for attempt in range(1, retries + 1):
+        try:
+            return await loop.run_in_executor(
+                None,
+                synthesize_speech_http,
+                text, role, api_key, speed, model_name, voice_map, emotion_override, 30
+            )
+        except Exception as e:
+            last_err = str(e)
+            await asyncio.sleep(attempt * 1.0)
+
+    # Engine 2: WebSocket Fallback
+    ws_url = "wss://api.minimaxi.com/ws/v1/t2a_v2"
+    headers = {"Authorization": f"Bearer {api_key}"}
     ssl_ctx = ssl.create_default_context()
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
-    last_err = "未知原因"
+    role_conf = voice_map.get(role, voice_map.get("Man_N", {"voice_id": "voice_1766653420_c08e99bd", "vol": 1.0, "pitch": 0}))
+    voice_id = role_conf.get("voice_id", "voice_1766653420_c08e99bd")
+    vol = role_conf.get("vol", 1.0)
+    pitch = role_conf.get("pitch", 0)
 
-    for attempt in range(1, retries + 1):
-        try:
-            async with websockets.connect(url, additional_headers=headers, ssl=ssl_ctx, open_timeout=15) as ws:
-                conn_raw = await asyncio.wait_for(ws.recv(), timeout=15)
-                conn_resp = json.loads(conn_raw)
-                if conn_resp.get("event") != "connected_success":
-                    last_err = conn_resp.get("base_resp", {}).get("status_msg", "连接握手未成功")
-                    await asyncio.sleep(attempt * 1.5)
-                    continue
-
+    try:
+        async with websockets.connect(ws_url, additional_headers=headers, ssl=ssl_ctx, open_timeout=15) as ws:
+            conn_raw = await asyncio.wait_for(ws.recv(), timeout=15)
+            conn_resp = json.loads(conn_raw)
+            if conn_resp.get("event") == "connected_success":
                 voice_setting = {
                     "voice_id": voice_id,
                     "speed": speed,
@@ -296,61 +358,39 @@ async def synthesize_speech_segment(text, role, api_key, speed, model_name, voic
                     "pitch": pitch,
                     "english_normalization": True
                 }
-
-                # MiniMax emotion parameter
                 if emotion_override:
-                    norm_emotion = EMOTION_MAP.get(emotion_override.lower(), emotion_override.lower())
-                    voice_setting["emotion"] = norm_emotion
+                    voice_setting["emotion"] = EMOTION_MAP.get(emotion_override.lower(), emotion_override.lower())
 
                 start_msg = {
                     "event": "task_start",
                     "model": model_name,
                     "voice_setting": voice_setting,
-                    "audio_setting": {
-                        "sample_rate": SAMPLE_RATE,
-                        "bitrate": 128000,
-                        "format": "pcm",
-                        "channel": 1
-                    }
+                    "audio_setting": {"sample_rate": SAMPLE_RATE, "bitrate": 128000, "format": "pcm", "channel": 1}
                 }
                 await ws.send(json.dumps(start_msg))
                 start_raw = await asyncio.wait_for(ws.recv(), timeout=15)
                 start_resp = json.loads(start_raw)
-                if start_resp.get("event") != "task_started":
-                    last_err = start_resp.get("base_resp", {}).get("status_msg", "任务启动未成功")
-                    await asyncio.sleep(attempt * 1.5)
-                    continue
-
-                await ws.send(json.dumps({
-                    "event": "task_continue",
-                    "text": text
-                }))
-
-                audio_data = b""
-                while True:
-                    pkt_raw = await asyncio.wait_for(ws.recv(), timeout=20)
-                    pkt = json.loads(pkt_raw)
-                    if "base_resp" in pkt and pkt["base_resp"].get("status_code", 0) != 0:
-                        last_err = pkt["base_resp"].get("status_msg", "合成流报错")
-                        break
-                    if "data" in pkt and "audio" in pkt["data"] and pkt["data"]["audio"]:
-                        audio_data += bytes.fromhex(pkt["data"]["audio"])
-                    if pkt.get("is_final"):
-                        break
-
-                try:
-                    await ws.send(json.dumps({"event": "task_finish"}))
-                except Exception:
-                    pass
-
-                if audio_data:
-                    return apply_edge_fade(audio_data, fade_ms=5)
-                else:
-                    last_err = "未能接收到有效音频流"
-
-        except Exception as e:
-            last_err = str(e)
-            await asyncio.sleep(attempt * 1.5)
+                if start_resp.get("event") == "task_started":
+                    await ws.send(json.dumps({"event": "task_continue", "text": text}))
+                    audio_data = b""
+                    while True:
+                        pkt_raw = await asyncio.wait_for(ws.recv(), timeout=20)
+                        pkt = json.loads(pkt_raw)
+                        if "base_resp" in pkt and pkt["base_resp"].get("status_code", 0) != 0:
+                            last_err = pkt["base_resp"].get("status_msg", "合成流报错")
+                            break
+                        if "data" in pkt and "audio" in pkt["data"] and pkt["data"]["audio"]:
+                            audio_data += bytes.fromhex(pkt["data"]["audio"])
+                        if pkt.get("is_final"):
+                            break
+                    try:
+                        await ws.send(json.dumps({"event": "task_finish"}))
+                    except Exception:
+                        pass
+                    if audio_data:
+                        return apply_edge_fade(audio_data, fade_ms=5)
+    except Exception as e:
+        last_err = str(e)
 
     raise RuntimeError(f"合成失败: [{role}] {text} (服务端返回: {last_err})")
 
