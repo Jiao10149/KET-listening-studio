@@ -259,8 +259,8 @@ def create_silence_pcm(seconds):
     """Generate exact digital silence PCM bytes (Zero-Airflow)."""
     return b'\x00' * int(SAMPLE_RATE * 2 * seconds)
 
-async def synthesize_speech_segment(text, role, api_key, speed, model_name, voice_map, emotion_override=None, retries=3):
-    """Synthesize speech using MiniMax WebSocket API supporting custom voice_id, model, and emotions."""
+async def synthesize_speech_segment(text, role, api_key, speed, model_name, voice_map, emotion_override=None, retries=5):
+    """Synthesize speech using MiniMax WebSocket API supporting custom voice_id, model, emotions, timeout and exponential backoff."""
     role_conf = voice_map.get(role, voice_map.get("Man_N", {
         "voice_id": "voice_1766653420_c08e99bd",
         "vol": 1.0,
@@ -277,11 +277,16 @@ async def synthesize_speech_segment(text, role, api_key, speed, model_name, voic
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
+    last_err = "未知原因"
+
     for attempt in range(1, retries + 1):
         try:
-            async with websockets.connect(url, additional_headers=headers, ssl=ssl_ctx) as ws:
-                conn_resp = json.loads(await ws.recv())
+            async with websockets.connect(url, additional_headers=headers, ssl=ssl_ctx, open_timeout=15) as ws:
+                conn_raw = await asyncio.wait_for(ws.recv(), timeout=15)
+                conn_resp = json.loads(conn_raw)
                 if conn_resp.get("event") != "connected_success":
+                    last_err = conn_resp.get("base_resp", {}).get("status_msg", "连接握手未成功")
+                    await asyncio.sleep(attempt * 1.5)
                     continue
 
                 voice_setting = {
@@ -309,8 +314,11 @@ async def synthesize_speech_segment(text, role, api_key, speed, model_name, voic
                     }
                 }
                 await ws.send(json.dumps(start_msg))
-                start_resp = json.loads(await ws.recv())
+                start_raw = await asyncio.wait_for(ws.recv(), timeout=15)
+                start_resp = json.loads(start_raw)
                 if start_resp.get("event") != "task_started":
+                    last_err = start_resp.get("base_resp", {}).get("status_msg", "任务启动未成功")
+                    await asyncio.sleep(attempt * 1.5)
                     continue
 
                 await ws.send(json.dumps({
@@ -320,8 +328,11 @@ async def synthesize_speech_segment(text, role, api_key, speed, model_name, voic
 
                 audio_data = b""
                 while True:
-                    pkt_raw = await ws.recv()
+                    pkt_raw = await asyncio.wait_for(ws.recv(), timeout=20)
                     pkt = json.loads(pkt_raw)
+                    if "base_resp" in pkt and pkt["base_resp"].get("status_code", 0) != 0:
+                        last_err = pkt["base_resp"].get("status_msg", "合成流报错")
+                        break
                     if "data" in pkt and "audio" in pkt["data"] and pkt["data"]["audio"]:
                         audio_data += bytes.fromhex(pkt["data"]["audio"])
                     if pkt.get("is_final"):
@@ -332,11 +343,16 @@ async def synthesize_speech_segment(text, role, api_key, speed, model_name, voic
                 except Exception:
                     pass
 
-                return apply_edge_fade(audio_data, fade_ms=5)
-        except Exception:
-            await asyncio.sleep(1.0)
+                if audio_data:
+                    return apply_edge_fade(audio_data, fade_ms=5)
+                else:
+                    last_err = "未能接收到有效音频流"
 
-    raise RuntimeError(f"合成失败: [{role}] {text}")
+        except Exception as e:
+            last_err = str(e)
+            await asyncio.sleep(attempt * 1.5)
+
+    raise RuntimeError(f"合成失败: [{role}] {text} (服务端返回: {last_err})")
 
 async def process_question_text(role, question_text, emotion, api_key, speed, model_name, voice_map):
     parts = PAUSE_PATTERN.split(question_text)
@@ -345,6 +361,7 @@ async def process_question_text(role, question_text, emotion, api_key, speed, mo
         if idx % 2 == 0:
             sub = part.strip()
             if sub:
+                await asyncio.sleep(0.2)
                 pcm += await synthesize_speech_segment(sub, role, api_key, speed, model_name, voice_map, emotion)
         else:
             sec = float(part)
@@ -399,6 +416,7 @@ async def build_audio_master(raw_script, api_key, speed, model_name, voice_map, 
         emo_tag = f" ({emotion})" if emotion else ""
         if progress_cb:
             progress_cb(f"正在录制角色 [{role}{emo_tag}]...", pct)
+        await asyncio.sleep(0.3)
         pcm = await synthesize_speech_segment(text, role, api_key, speed, model_name, voice_map, emotion)
         dialogue_pcms.append(pcm)
 
