@@ -154,20 +154,59 @@ KET_VOICES = {
     "Man": {"voice_id": "voice_1766653420_c08e99bd", "vol": 1.0, "pitch": 0, "name": "Man (成年男声/爸爸 - 音量 1.0)"}
 }
 
-# Supported Emotions in MiniMax
+# Supported Emotions in MiniMax (with intelligent synonyms and safe fallback)
+OFFICIAL_EMOTIONS = {
+    "happy", "sad", "angry", "fearful", "disgusted", "surprised", "neutral", "calm", "fluent", "whisper"
+}
+
 EMOTION_MAP = {
+    # 官方支持的原生情绪
     "neutral": "neutral",
     "happy": "happy",
-    "friendly": "happy",
-    "calm": "calm",
     "sad": "sad",
     "angry": "angry",
     "fearful": "fearful",
     "disgusted": "disgusted",
     "surprised": "surprised",
+    "calm": "calm",
     "whisper": "whisper",
-    "fluent": "fluent"
+    "fluent": "fluent",
+
+    # 常用中英文语义智能映射
+    "polite": "calm",          # 礼貌客气 -> 平静自然
+    "encouraging": "happy",    # 鼓励热忱 -> 开心友好
+    "friendly": "happy",       # 亲切友好 -> 开心
+    "cheerful": "happy",       # 欢快开朗 -> 开心
+    "excited": "happy",        # 兴奋激动 -> 开心
+    "gentle": "calm",          # 温和温柔 -> 平静
+    "curious": "surprised",    # 好奇探究 -> 惊讶
+    "worried": "fearful",      # 担忧焦虑 -> 恐惧
+    "nervous": "fearful",      # 紧张不安 -> 恐惧
+    "serious": "neutral",      # 严肃正式 -> 中性
+    "tired": "calm",           # 疲倦乏力 -> 平静
+    "patient": "calm",         # 耐心细致 -> 平静
+    "helpful": "happy",        # 乐于助人 -> 开心
+    "proud": "happy",          # 骄傲自豪 -> 开心
+    "confused": "surprised",   # 困惑不解 -> 惊讶
+    "warm": "happy",           # 温暖温暖 -> 开心
+    "kind": "calm",            # 和善友善 -> 平静
+
+    # 中文情绪映射
+    "开心": "happy", "高兴": "happy", "悲伤": "sad", "难过": "sad",
+    "生气": "angry", "愤怒": "angry", "害怕": "fearful", "紧张": "fearful",
+    "惊讶": "surprised", "平静": "calm", "中性": "neutral", "礼貌": "calm",
+    "鼓励": "happy", "低语": "whisper", "悄悄话": "whisper"
 }
+
+def normalize_emotion(raw_emotion):
+    """Normalize any user-provided emotion into a valid MiniMax supported emotion, with safe fallback."""
+    if not raw_emotion:
+        return None
+    clean = str(raw_emotion).strip().lower()
+    if clean in OFFICIAL_EMOTIONS:
+        return clean
+    # Return mapped emotion or safe default 'calm'
+    return EMOTION_MAP.get(clean, "calm")
 
 PAUSE_PATTERN = re.compile(r'<#(\d+(?:\.\d+)?)#>')
 LINE_PATTERN = re.compile(r'^\s*([A-Za-z0-9_]+)(?:\|([^|]*)\|)?\s*:\s*(.*)$')
@@ -284,8 +323,8 @@ def synthesize_speech_http(text, role, api_key, speed, model_name, voice_map, em
         "pitch": pitch,
         "english_normalization": True
     }
-    if emotion_override:
-        norm_emotion = EMOTION_MAP.get(emotion_override.lower(), emotion_override.lower())
+    norm_emotion = normalize_emotion(emotion_override)
+    if norm_emotion:
         voice_setting["emotion"] = norm_emotion
 
     payload = {
@@ -358,8 +397,9 @@ async def synthesize_speech_segment(text, role, api_key, speed, model_name, voic
                     "pitch": pitch,
                     "english_normalization": True
                 }
-                if emotion_override:
-                    voice_setting["emotion"] = EMOTION_MAP.get(emotion_override.lower(), emotion_override.lower())
+                ws_norm_emotion = normalize_emotion(emotion_override)
+                if ws_norm_emotion:
+                    voice_setting["emotion"] = ws_norm_emotion
 
                 start_msg = {
                     "event": "task_start",
