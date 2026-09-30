@@ -226,8 +226,13 @@ if "custom_roles" not in st.session_state:
         "Teacher": {"voice_id": "clone_voice_narrator", "vol": 2.0, "pitch": 0, "desc": "授课教师"}
     }
 
+if "current_user" not in st.session_state:
+    st.session_state.current_user = "默认成员"
+
 def check_password():
     if st.session_state.get("password_input") == DEFAULT_PASSWORD:
+        uname = st.session_state.get("nickname_input", "").strip()
+        st.session_state.current_user = uname if uname else "默认成员"
         st.session_state.authenticated = True
         st.rerun()
     else:
@@ -235,59 +240,115 @@ def check_password():
 
 if not st.session_state.authenticated:
     st.markdown("""
-    <div style="max-width: 460px; margin: 100px auto; padding: 36px; background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; text-align: center;">
-        <div style="font-size: 48px; margin-bottom: 12px;">🎙️</div>
-        <h2 style="margin: 0 0 10px 0; color: #1e293b; font-weight: 700;">听力智能录音工作台</h2>
-        <p style="color: #64748b; font-size: 14px; margin-bottom: 24px;">团队内部专用生产系统 · 请输入授权密码继续</p>
+    <div style="max-width: 480px; margin: 60px auto 20px auto; padding: 32px 36px; background: white; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; text-align: center;">
+        <div style="font-size: 46px; margin-bottom: 8px;">🎙️</div>
+        <h2 style="margin: 0 0 8px 0; color: #1e293b; font-weight: 700;">听力智能录音工作台</h2>
+        <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">团队内部专用生产系统 · 请输入姓名与授权密码</p>
     </div>
     """, unsafe_allow_html=True)
     with st.container():
         _, col_mid, _ = st.columns([1, 1.2, 1])
         with col_mid:
-            st.text_input("访问密码", type="password", key="password_input", on_change=check_password)
-            st.caption("提示：如需获取密码请联系录音棚管理员。")
+            with st.form("login_form"):
+                user_nickname = st.text_input("👤 您的姓名 / 团队昵称", placeholder="例如：老师小张 / Amy / Kevin", help="系统将为您建立独立录音历史库")
+                pass_val = st.text_input("🔑 访问密码", type="password", placeholder="请输入密码")
+                submit_btn = st.form_submit_button("🚀 进入个人录音棚", use_container_width=True)
+                if submit_btn:
+                    if pass_val == DEFAULT_PASSWORD:
+                        final_user = user_nickname.strip() if user_nickname.strip() else "默认成员"
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = final_user
+                        st.rerun()
+                    else:
+                        st.error("密码错误，请向管理员获取访问密码！")
+            st.caption("💡 说明：每位团队成员拥有独立的录音历史库，录音记录互不干扰。")
     st.stop()
 
-# ================= HISTORY STORAGE & MANAGEMENT =================
-HISTORY_DIR = os.path.join(os.path.dirname(__file__), "data_history")
-os.makedirs(HISTORY_DIR, exist_ok=True)
-HISTORY_JSON = os.path.join(HISTORY_DIR, "history.json")
+# ================= INDIVIDUAL USER HISTORY STORAGE & MANAGEMENT =================
+HISTORY_BASE_DIR = os.path.join(os.path.dirname(__file__), "data_history")
+os.makedirs(HISTORY_BASE_DIR, exist_ok=True)
 
-def load_history():
-    if not os.path.exists(HISTORY_JSON):
+def sanitize_user_key(user_name):
+    if not user_name or not str(user_name).strip():
+        return "default_user"
+    clean = re.sub(r'[^\w\u4e00-\u9fa5_-]', '_', str(user_name).strip())
+    return clean[:30] if clean else "default_user"
+
+def get_user_history_dir(user_name=None):
+    if user_name is None:
+        user_name = st.session_state.get("current_user", "默认成员")
+    ukey = sanitize_user_key(user_name)
+    user_dir = os.path.join(HISTORY_BASE_DIR, "users", ukey)
+    os.makedirs(user_dir, exist_ok=True)
+    return user_dir
+
+def get_history_audio_path(file_name, user_name=None):
+    if not file_name:
+        return None
+    user_dir = get_user_history_dir(user_name)
+    return os.path.join(user_dir, file_name)
+
+# Auto migrate legacy root history to default user
+def migrate_legacy_history():
+    legacy_json = os.path.join(HISTORY_BASE_DIR, "history.json")
+    if os.path.exists(legacy_json):
+        default_dir = get_user_history_dir("默认成员")
+        default_json = os.path.join(default_dir, "history.json")
+        if not os.path.exists(default_json):
+            try:
+                import shutil
+                shutil.copy2(legacy_json, default_json)
+                for f in os.listdir(HISTORY_BASE_DIR):
+                    if f.endswith(".mp3"):
+                        shutil.move(os.path.join(HISTORY_BASE_DIR, f), os.path.join(default_dir, f))
+            except Exception:
+                pass
+migrate_legacy_history()
+
+def load_history(user_name=None):
+    user_dir = get_user_history_dir(user_name)
+    history_json = os.path.join(user_dir, "history.json")
+    if not os.path.exists(history_json):
         return []
     try:
-        with open(HISTORY_JSON, "r", encoding="utf-8") as f:
+        with open(history_json, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return []
 
-def save_history(records):
-    # Keep at most 50 latest records (MiniMax style)
+def save_history(records, user_name=None):
+    user_dir = get_user_history_dir(user_name)
+    history_json = os.path.join(user_dir, "history.json")
+    
+    # Keep at most 50 latest records for this user (MiniMax style)
     to_keep = records[:50]
     kept_files = {r.get("file_name") for r in to_keep if r.get("file_name")}
     
-    # Prune old mp3 files from disk
+    # Prune old mp3 files from this user's directory
     try:
-        for fname in os.listdir(HISTORY_DIR):
+        for fname in os.listdir(user_dir):
             if fname.endswith(".mp3") and fname not in kept_files:
                 try:
-                    os.remove(os.path.join(HISTORY_DIR, fname))
+                    os.remove(os.path.join(user_dir, fname))
                 except Exception:
                     pass
     except Exception:
         pass
 
     try:
-        with open(HISTORY_JSON, "w", encoding="utf-8") as f:
+        with open(history_json, "w", encoding="utf-8") as f:
             json.dump(to_keep, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
-def add_history_record(title, script, model, speed, mode, duration_sec, mp3_bytes):
+def add_history_record(title, script, model, speed, mode, duration_sec, mp3_bytes, user_name=None):
+    if user_name is None:
+        user_name = st.session_state.get("current_user", "默认成员")
+    user_dir = get_user_history_dir(user_name)
+
     rec_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
     audio_fname = f"{rec_id}.mp3"
-    audio_path = os.path.join(HISTORY_DIR, audio_fname)
+    audio_path = os.path.join(user_dir, audio_fname)
     try:
         with open(audio_path, "wb") as f:
             f.write(mp3_bytes)
@@ -303,6 +364,7 @@ def add_history_record(title, script, model, speed, mode, duration_sec, mp3_byte
 
     new_rec = {
         "id": rec_id,
+        "user": user_name,
         "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "title": title or "未命名录音.mp3",
         "snippet": snippet,
@@ -314,19 +376,20 @@ def add_history_record(title, script, model, speed, mode, duration_sec, mp3_byte
         "size_kb": f"{len(mp3_bytes)/1024:.1f} KB",
         "file_name": audio_fname
     }
-    history = load_history()
+    history = load_history(user_name)
     history.insert(0, new_rec)
-    save_history(history)
+    save_history(history, user_name)
     return new_rec
 
-def delete_history_record(rec_id):
-    history = load_history()
+def delete_history_record(rec_id, user_name=None):
+    user_dir = get_user_history_dir(user_name)
+    history = load_history(user_name)
     new_hist = []
     for r in history:
         if r.get("id") == rec_id:
             fname = r.get("file_name")
             if fname:
-                p = os.path.join(HISTORY_DIR, fname)
+                p = os.path.join(user_dir, fname)
                 if os.path.exists(p):
                     try:
                         os.remove(p)
@@ -334,20 +397,21 @@ def delete_history_record(rec_id):
                         pass
         else:
             new_hist.append(r)
-    save_history(new_hist)
+    save_history(new_hist, user_name)
 
-def clear_all_history():
-    history = load_history()
+def clear_all_history(user_name=None):
+    user_dir = get_user_history_dir(user_name)
+    history = load_history(user_name)
     for r in history:
         fname = r.get("file_name")
         if fname:
-            p = os.path.join(HISTORY_DIR, fname)
+            p = os.path.join(user_dir, fname)
             if os.path.exists(p):
                 try:
                     os.remove(p)
                 except Exception:
                     pass
-    save_history([])
+    save_history([], user_name)
 
 # Helper Functions
 def get_now_listen_again_pcm(asset_path):
@@ -699,6 +763,16 @@ now_listen_pcm = get_now_listen_again_pcm(ASSET_PATH)
 
 # ================= SIDEBAR & WORKBENCH MODES =================
 with st.sidebar:
+    current_user = st.session_state.get("current_user", "默认成员")
+    st.markdown(f"### 👤 录音成员：`{current_user}`")
+    with st.expander("🔄 切换成员账号", expanded=False):
+        new_uname = st.text_input("切换为新姓名/昵称：", value=current_user, key="switch_user_input")
+        if st.button("确认切换身份", key="switch_user_btn", use_container_width=True):
+            if new_uname.strip():
+                st.session_state.current_user = new_uname.strip()
+                st.rerun()
+
+    st.markdown("---")
     st.markdown("### 🎛️ 录音棚模式选择")
     app_mode = st.radio(
         "工作模式：",
@@ -1084,23 +1158,25 @@ with tab_single:
 
     # Right Column: MiniMax Style Live History Sidebar
     with col_r:
+        current_user = st.session_state.get("current_user", "默认成员")
         hist_records_single = load_history()
         
         col_rh1, col_rh2 = st.columns([2.2, 1])
         with col_rh1:
-            st.markdown(f"#### 🕒 历史记录 ({len(hist_records_single)})")
+            st.markdown(f"#### 🕒 个人历史 ({len(hist_records_single)})")
+            st.caption(f"成员：`{current_user}` 的专属空间")
         with col_rh2:
             if hist_records_single:
-                if st.button("🗑️ 清空", key="clear_hist_single_col", help="清空所有历史录音", use_container_width=True):
+                if st.button("🗑️ 清空", key="clear_hist_single_col", help=f"仅清空 {current_user} 的历史录音", use_container_width=True):
                     clear_all_history()
                     st.rerun()
 
         if not hist_records_single:
-            st.markdown("""
+            st.markdown(f"""
             <div style="border: 2px dashed #cbd5e1; border-radius: 12px; padding: 40px 20px; text-align: center; color: #94a3b8; background: #f8fafc; margin-top: 10px;">
                 <p style="font-size: 28px; margin: 0 0 10px 0;">🎙️</p>
-                <p style="font-weight: 600; color: #64748b; margin-bottom: 6px;">暂无历史录制记录</p>
-                <p style="font-size: 13px; margin: 0;">在左侧点击【🚀 开始一键合成】后，生成的音频将实时沉淀在此处供试听、下载或一键回填应用。</p>
+                <p style="font-weight: 600; color: #64748b; margin-bottom: 6px;">【{current_user}】暂无历史记录</p>
+                <p style="font-size: 13px; margin: 0;">在左侧点击【🚀 开始一键合成】后，您生成的音频将独立沉淀在此处，其他成员无法查看或修改。</p>
             </div>
             """, unsafe_allow_html=True)
         else:
@@ -1110,7 +1186,7 @@ with tab_single:
                     title = rec.get("title", f"录音_{idx+1}.mp3")
                     file_name_item = rec.get("file_name")
                     snippet = rec.get("snippet", "")
-                    audio_path = os.path.join(HISTORY_DIR, file_name_item) if file_name_item else None
+                    audio_path = get_history_audio_path(file_name_item)
                     has_audio = audio_path and os.path.exists(audio_path)
 
                     is_newest = (idx == 0)
@@ -1250,8 +1326,9 @@ Girl|happy|: My teacher moved it to Sunday, so tomorrow morning is completely fr
 
 # ----------------- TAB 4: HISTORY & A/B COMPARISON -----------------
 with tab_history:
-    st.subheader("📜 录制历史记录与效果对比")
-    st.caption("系统自动保留最近生成的 50 条录音，支持在线回听、下载、台词一键回填到单题编辑器，以及 A/B 录音效果横向对比。")
+    current_user = st.session_state.get("current_user", "默认成员")
+    st.subheader(f"📜 录制历史记录与效果对比（成员：{current_user}）")
+    st.caption(f"当前展示成员【{current_user}】的独立录音空间，团队成员各自隔离，互不打扰。")
 
     history_records = load_history()
 
@@ -1261,13 +1338,13 @@ with tab_history:
         st.write(f"当前已存储 **{len(history_records)}** / 50 条录音记录。")
     with col_h_clear:
         if history_records:
-            if st.button("🗑️ 清空所有历史记录", use_container_width=True):
+            if st.button("🗑️ 清空我的所有历史记录", use_container_width=True, help=f"仅清空 {current_user} 的录音记录"):
                 clear_all_history()
-                st.success("所有历史记录已清空！")
+                st.success(f"{current_user} 的所有历史记录已清空！")
                 st.rerun()
 
     if not history_records:
-        st.info("💡 暂无历史录制记录。在【单题精细录制】、【Excel 批量导入】或【文本快速批量录制】中生成音频后，将自动在此沉淀（最多保留最近 50 条）。")
+        st.info(f"💡 【{current_user}】暂无历史录制记录。在【单题精细录制】、【Excel 批量导入】或【文本快速批量录制】中生成音频后，将自动沉淀在您的个人空间中。")
     else:
         # A/B Comparison Tool
         if len(history_records) >= 2:
@@ -1290,8 +1367,8 @@ with tab_history:
                 col_ab_a, col_ab_b = st.columns(2)
                 with col_ab_a:
                     st.markdown(f"#### 🅰️ 样本 A: `{rec_a.get('title', '')}`")
-                    audio_path_a = os.path.join(HISTORY_DIR, rec_a.get("file_name", ""))
-                    if os.path.exists(audio_path_a):
+                    audio_path_a = get_history_audio_path(rec_a.get("file_name", ""))
+                    if audio_path_a and os.path.exists(audio_path_a):
                         with open(audio_path_a, "rb") as af:
                             st.audio(af.read(), format="audio/mp3")
                     else:
@@ -1303,8 +1380,8 @@ with tab_history:
 
                 with col_ab_b:
                     st.markdown(f"#### 🅱️ 样本 B: `{rec_b.get('title', '')}`")
-                    audio_path_b = os.path.join(HISTORY_DIR, rec_b.get("file_name", ""))
-                    if os.path.exists(audio_path_b):
+                    audio_path_b = get_history_audio_path(rec_b.get("file_name", ""))
+                    if audio_path_b and os.path.exists(audio_path_b):
                         with open(audio_path_b, "rb") as bf:
                             st.audio(bf.read(), format="audio/mp3")
                     else:
@@ -1321,7 +1398,7 @@ with tab_history:
             rec_id = rec.get("id")
             title = rec.get("title", f"录音_{idx+1}.mp3")
             file_name = rec.get("file_name")
-            audio_path = os.path.join(HISTORY_DIR, file_name) if file_name else None
+            audio_path = get_history_audio_path(file_name)
             has_audio = audio_path and os.path.exists(audio_path)
 
             with st.container():
