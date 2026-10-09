@@ -414,35 +414,47 @@ def clear_all_history(user_name=None):
     save_history([], user_name)
 
 # Helper Functions
+@st.cache_data(show_spinner=False)
 def get_now_listen_again_pcm(asset_path):
-    """Load and resample now_listen_again cue audio to 32kHz mono PCM."""
-    if not os.path.exists(asset_path):
+    """Load and resample now_listen_again cue audio to 32kHz mono PCM (cached & thread-safe)."""
+    if not asset_path or not os.path.exists(asset_path):
         return None
-    temp_wav = "/tmp/web_nla.wav"
-    subprocess.run([
-        DEFAULT_FFMPEG, "-y",
-        "-i", asset_path,
-        "-ar", str(SAMPLE_RATE),
-        "-ac", "1",
-        temp_wav
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    unique_id = uuid.uuid4().hex
+    temp_wav = f"/tmp/web_nla_{unique_id}.wav"
+    try:
+        subprocess.run([
+            DEFAULT_FFMPEG, "-y",
+            "-i", asset_path,
+            "-ar", str(SAMPLE_RATE),
+            "-ac", "1",
+            temp_wav
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
-    with wave.open(temp_wav, "rb") as w:
-        frames = w.readframes(w.getnframes())
-    if os.path.exists(temp_wav):
-        os.remove(temp_wav)
+        if not os.path.exists(temp_wav):
+            return None
 
-    samples = np.frombuffer(frames, dtype=np.int16)
-    th = 200
-    speech_indices = np.where(np.abs(samples) > th)[0]
-    if len(speech_indices) > 0:
-        start_idx = max(0, speech_indices[0] - int(SAMPLE_RATE * 0.05))
-        end_idx = min(len(samples), speech_indices[-1] + int(SAMPLE_RATE * 0.08))
-        speech_samples = samples[start_idx:end_idx]
-    else:
-        speech_samples = samples
+        with wave.open(temp_wav, "rb") as w:
+            frames = w.readframes(w.getnframes())
 
-    return apply_edge_fade(speech_samples.tobytes(), fade_ms=5)
+        samples = np.frombuffer(frames, dtype=np.int16)
+        th = 200
+        speech_indices = np.where(np.abs(samples) > th)[0]
+        if len(speech_indices) > 0:
+            start_idx = max(0, speech_indices[0] - int(SAMPLE_RATE * 0.05))
+            end_idx = min(len(samples), speech_indices[-1] + int(SAMPLE_RATE * 0.08))
+            speech_samples = samples[start_idx:end_idx]
+        else:
+            speech_samples = samples
+
+        return apply_edge_fade(speech_samples.tobytes(), fade_ms=5)
+    except Exception:
+        return None
+    finally:
+        if os.path.exists(temp_wav):
+            try:
+                os.remove(temp_wav)
+            except Exception:
+                pass
 
 def apply_edge_fade(pcm_bytes, fade_ms=5):
     """Apply micro fade-in/fade-out to eliminate edge clicks, with soft peak limiting."""
@@ -689,8 +701,9 @@ async def build_audio_master(raw_script, api_key, speed, model_name, voice_map, 
     full_pcm += create_silence_pcm(end_pause)
 
     # Convert PCM to MP3
-    temp_wav = f"/tmp/temp_master_{os.getpid()}.wav"
-    temp_mp3 = f"/tmp/temp_master_{os.getpid()}.mp3"
+    unique_id = uuid.uuid4().hex
+    temp_wav = f"/tmp/temp_master_{os.getpid()}_{unique_id}.wav"
+    temp_mp3 = f"/tmp/temp_master_{os.getpid()}_{unique_id}.mp3"
 
     with wave.open(temp_wav, "wb") as w:
         w.setnchannels(1)
@@ -701,8 +714,11 @@ async def build_audio_master(raw_script, api_key, speed, model_name, voice_map, 
     cmd = [
         DEFAULT_FFMPEG, "-y",
         "-i", temp_wav,
+        "-c:a", "libmp3lame",
         "-b:a", "192k",
         "-ar", str(SAMPLE_RATE),
+        "-write_xing", "1",
+        "-id3v2_version", "3",
         temp_mp3
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
@@ -714,7 +730,10 @@ async def build_audio_master(raw_script, api_key, speed, model_name, voice_map, 
 
     for p in [temp_wav, temp_mp3]:
         if os.path.exists(p):
-            os.remove(p)
+            try:
+                os.remove(p)
+            except Exception:
+                pass
 
     return mp3_bytes, duration_sec
 
@@ -1073,7 +1092,7 @@ with tab_excel:
                             with col_a:
                                 st.write(f"**{item['文件名']}** ({item['时长(秒)']})")
                             with col_b:
-                                st.audio(item['mp3_bytes'], format="audio/mp3")
+                                st.audio(item['mp3_bytes'], format="audio/mpeg")
 
         except Exception as e:
             st.error(f"读取 Excel 文件失败: {e}")
@@ -1145,7 +1164,7 @@ with tab_single:
                     )
 
                     st.markdown("##### 🎵 本次生成音频快速试听与下载：")
-                    st.audio(mp3_data, format="audio/mp3")
+                    st.audio(mp3_data, format="audio/mpeg")
                     st.download_button(
                         label=f"📥 立即下载 {file_name}",
                         data=mp3_data,
@@ -1217,7 +1236,7 @@ with tab_single:
                     if has_audio:
                         with open(audio_path, "rb") as af:
                             audio_bytes = af.read()
-                        st.audio(audio_bytes, format="audio/mp3")
+                        st.audio(audio_bytes, format="audio/mpeg")
 
                         c_btn1, c_btn2, c_btn3 = st.columns([1.1, 1.1, 0.8])
                         with c_btn1:
@@ -1370,7 +1389,7 @@ with tab_history:
                     audio_path_a = get_history_audio_path(rec_a.get("file_name", ""))
                     if audio_path_a and os.path.exists(audio_path_a):
                         with open(audio_path_a, "rb") as af:
-                            st.audio(af.read(), format="audio/mp3")
+                            st.audio(af.read(), format="audio/mpeg")
                     else:
                         st.caption("音频文件已不在本地缓存中")
                     st.caption(f"**模型**: {rec_a.get('model')} | **语速**: {rec_a.get('speed')}x | **模式**: {rec_a.get('mode')}")
@@ -1383,7 +1402,7 @@ with tab_history:
                     audio_path_b = get_history_audio_path(rec_b.get("file_name", ""))
                     if audio_path_b and os.path.exists(audio_path_b):
                         with open(audio_path_b, "rb") as bf:
-                            st.audio(bf.read(), format="audio/mp3")
+                            st.audio(bf.read(), format="audio/mpeg")
                     else:
                         st.caption("音频文件已不在本地缓存中")
                     st.caption(f"**模型**: {rec_b.get('model')} | **语速**: {rec_b.get('speed')}x | **模式**: {rec_b.get('mode')}")
@@ -1423,7 +1442,7 @@ with tab_history:
                     if has_audio:
                         with open(audio_path, "rb") as af:
                             audio_bytes = af.read()
-                        st.audio(audio_bytes, format="audio/mp3")
+                        st.audio(audio_bytes, format="audio/mpeg")
                     else:
                         audio_bytes = None
                         st.warning("⚠️ 该历史音频文件已失效或已被清理。")
